@@ -9,14 +9,14 @@ NORMAL='\033[0m'
 PROJECT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
 
 # Variables
-ACK_REPO="https://android.googlesource.com/kernel/common.git"
+CAF_REPO="https://git.codelinaro.org/clo/la/kernel/msm-4.19.git"
 OEM_KERNEL=${1}
-ACK_BRANCH=${2}
+CAF_BRANCH=${2}
 
 # Help Function
 usage() {
 	echo -e "${0} \"link to oem kernel source (git)\" \"ack-branch\"
-	>> eg: ${0} \"https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b dandelion-q-oss\" \"android-4.9-q\""
+	>> eg: ${0} \"https://github.com/cd-Crypton/android_kernel_oneplus_sm6225 -b master\" \"LA.UM.9.15.2.r1-07700-KAMORTA.QSSI14.0\""
 }
 
 # Abort Function
@@ -28,17 +28,17 @@ abort() {
 # Clone the OEM Kernel Source
 git clone --depth=1 --single-branch $(echo ${OEM_KERNEL}) oem
 
-# Clone the Android Common Kernel Source
-git clone --single-branch -b ${ACK_BRANCH} ${ACK_REPO} kernel
+# Clone the CAF Kernel Source
+git clone --single-branch -b ${CAF_BRANCH} ${CAF_REPO} kernel
 
 # Get the OEM Kernel's Version
 cd oem
 OEM_KERNEL_VERSION=$(make kernelversion)
 cd -
 
-# Hard Reset ACK to ${OEM_KERNEL_VERSION}
+# Hard Reset CAF to ${OEM_KERNEL_VERSION}
 cd kernel
-OEM_KERNEL_VER_SHORT_SHA=$(git log --oneline ${ACK_BRANCH} Makefile | grep -i ${OEM_KERNEL_VERSION} | grep -i merge | cut -d ' ' -f1)
+OEM_KERNEL_VER_SHORT_SHA=$(git log --oneline ${CAF_BRANCH} Makefile | grep -i ${OEM_KERNEL_VERSION} | grep -i merge | cut -d ' ' -f1)
 git reset --hard ${OEM_KERNEL_VER_SHORT_SHA}
 cd -
 
@@ -67,7 +67,7 @@ git commit -s -m "Import Remaining OEM Changes"
 
 cd -
 
-echo -e ${GREEN}"Your Kernel has been successfully rebased to ACK. Please check kernel/"${NORMAL}
+echo -e ${GREEN}"Your Kernel has been successfully rebased to CAF. Please check kernel/"${NORMAL}
 
 # Exit
 exit 0
