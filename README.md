@@ -1,5 +1,5 @@
 # Kernel Rebaser Script
-A script to rebase an OEM kernel to Android Common Kernel base
+A script to rebase an OEM kernel to Code Linaro's Kernel
 
 ## How to use?
 ```bash
