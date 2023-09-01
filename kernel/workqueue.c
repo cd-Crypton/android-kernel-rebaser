@@ -3143,6 +3143,12 @@ static bool __cancel_work(struct work_struct *work, bool is_dwork)
 	local_irq_restore(flags);
 	return ret;
 }
+#ifdef CONFIG_PRODUCT_MOBA
+bool cancel_work(struct work_struct *work)
+{
+       return __cancel_work(work, false);
+}
+#endif
 
 /**
  * cancel_delayed_work - cancel a delayed work
