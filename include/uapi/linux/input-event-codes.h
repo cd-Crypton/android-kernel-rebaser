@@ -337,6 +337,10 @@
 
 #define KEY_MICMUTE		248	/* Mute / unmute the microphone */
 
+//lenovo add for camera start
+#define KEY_CAMHAL_HOME 249
+//lenovo end
+
 /* Code 255 is reserved for special needs of AT keyboard driver */
 
 #define BTN_MISC		0x100
