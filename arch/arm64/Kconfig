@@ -297,6 +297,20 @@ config ARCH_PROC_KCORE_TEXT
 
 source "arch/arm64/Kconfig.platforms"
 
+choice
+  bool "Product selection"
+	default PRODUCT_MOBA
+	help
+	  select build product
+
+config PRODUCT_MOBA
+  bool "moba"
+	help
+	  This enable support for moba product. If you don't
+		know what to do here, say N
+
+endchoice
+
 menu "Bus support"
 
 config PCI
