@@ -818,6 +818,36 @@ static int fg_gen4_get_battery_temp(struct fg_dev *fg, int *val)
 	 */
 	*val = sign_extend32(buf, 9) * 100 / 40;
 
+	if (*val <= 100)
+		*val = *val - 15;
+	else if (*val <= 110)
+		*val = *val - 13;
+	else if (*val <= 120)
+		*val = *val - 11;
+	else if (*val <= 130)
+		*val = *val - 9;
+	else if (*val <= 140)
+		*val = *val - 7;
+	else if (*val <= 150)
+		*val = *val - 5;
+	else if (*val <= 160)
+		*val = *val - 3;
+	else if (*val <= 170)
+		*val = *val - 1;
+	else if (*val <= 290)
+		*val = *val + 2;
+	else if (*val <= 300)
+		*val = *val + 3;
+	else if (*val <= 310)
+		*val = *val + 4;
+	else if (*val <= 450)
+		*val = *val + 5;
+	else if (*val <= 600)
+		*val = *val + 5;
+
+	if (*val > 580)
+		pr_err("read BATT_TEMP buf=0x%04X, temp=%d\n", buf, *val);
+
 	return 0;
 }
 

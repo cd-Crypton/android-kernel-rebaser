@@ -135,6 +135,18 @@ config SCSI_UFSHCD_CMD_LOGGING
 	  Select this if you want above mentioned debug information captured.
 	  If unsure, say N.
 
+config HWCONF_MANAGER
+	bool "use hw_info and hw_mon to collect ufs-info"
+	depends on SCSI_UFSHCD
+	help
+	  This selects the UFS host controller driver layer command logging.
+	  UFS host controller driver layer command logging records all the
+	  command information sent from UFS host controller for debugging
+	  purpose.
+
+	  Select this if you want above mentioned debug information captured.
+	  If unsure, say N.
+
 config SCSI_UFS_HISI
 	tristate "Hisilicon specific hooks to UFS controller platform driver"
 	depends on (ARCH_HISI || COMPILE_TEST) && SCSI_UFSHCD_PLATFORM
@@ -143,3 +155,42 @@ config SCSI_UFS_HISI
 
 	  Select this if you have UFS controller on Hisilicon chipset.
 	  If unsure, say N.
+
+config UFSFEATURE
+	bool "UFS feature activate"
+	depends on SCSI_UFSHCD
+	---help---
+	UFS feature activate such as hpb, tw and etc.
+
+config UFSHPB
+	bool "UFS Host Performance Booster support"
+	depends on SCSI_UFSHCD && UFSFEATURE
+	---help---
+	UFS HPB Feature Enable
+
+config HPB_ERR_INJECTION
+	bool "HPB ERROR INJECTION"
+	depends on SCSI_UFSHCD && UFSFEATURE && UFSHPB
+	---help---
+	error injection for checking HPB entry integrity
+
+config UFSTW
+	bool "UFS Turbo Write support"
+	depends on SCSI_UFSHCD && UFSFEATURE
+	---help---
+	UFS TW Feature Enable
+
+config UFSTW_IGNORE_GUARANTEE_BIT
+	bool "Ignore UFS Turbo Write Life Time Guarantee bit for POC"
+	default n
+	depends on SCSI_UFSHCD && UFSFEATURE && UFSTW
+	---help---
+	ignore the guarantee bit[31] of dTurboWriteBufferLifeTimeEst for PoC
+
+config UFSTW_BOOT_ENABLED
+        bool "Turbo Write enabled at boot time"
+	default y
+	depends on SCSI_UFSHCD && UFSFEATURE && UFSTW
+	---help---
+	fTurboWriteEn and fTurboWriteBufferFlushDuringHibnerEnter flags
+	are enabled at boot time.

@@ -90,4 +90,10 @@ config SMB1398_CHARGER
 	      wireless charger receiver and provide the input for downstream
 	      chargers.
 
+config BATTERY_FAC
+	tristate "Battery Factory upport"
+	default n
+	help
+	  Say Y here to enable support for battery factory mode.
+
 endmenu

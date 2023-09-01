@@ -34,6 +34,7 @@
 #include <linux/slab.h>
 
 #include <video/mipi_display.h>
+#include <linux/delay.h>
 
 /**
  * DOC: dsi helpers
@@ -1058,7 +1059,7 @@ EXPORT_SYMBOL(mipi_dsi_dcs_set_tear_scanline);
 int mipi_dsi_dcs_set_display_brightness(struct mipi_dsi_device *dsi,
 					u16 brightness)
 {
-	u8 payload[2] = { brightness & 0xff, brightness >> 8 };
+	u8 payload[2] = { brightness >> 8, brightness & 0xff};
 	ssize_t err;
 
 	err = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
@@ -1095,6 +1096,382 @@ int mipi_dsi_dcs_get_display_brightness(struct mipi_dsi_device *dsi,
 	return 0;
 }
 EXPORT_SYMBOL(mipi_dsi_dcs_get_display_brightness);
+
+#ifdef CONFIG_PRODUCT_MOBA
+extern u8 osc_val[28];
+extern u8 gamma_c7[154];
+extern u8 gamma_c8[154];
+extern u8 gamma_c9[154];
+extern u8 gamma_ca[154];
+extern u8 gamma_cb[154];
+extern u8 gamma_c7_normal[154];
+extern u8 gamma_c8_normal[154];
+extern u8 gamma_c9_normal[154];
+extern u8 gamma_ca_normal[154];
+extern u8 gamma_cb_normal[154];
+
+int mipi_dsi_dcs_get_display_osc(struct mipi_dsi_device *dsi)
+{
+        ssize_t err;
+	u8 payload[5] = { 0 };
+
+	printk("drm dsi mipi_dsi_dcs_get_display_osc func enter\n");
+	// STEP 1, get OSC
+	//mipi.write 0x29 0xB0 0x04
+	payload[0] = 0x04;
+	err = mipi_dsi_dcs_write(dsi, 0xB0, payload, 1);
+        if (err < 0)
+                return err;
+
+	//mipi.write 0x29 0xE8 0x00 0x00 0x00 0x02
+        payload[0] = 0x00;
+	payload[1] = 0x00;
+	payload[2] = 0x00;
+	payload[3] = 0x02;
+        err = mipi_dsi_dcs_write(dsi, 0xE8, payload, 4);
+        if (err < 0)
+                return err;
+
+	//mipi.write 0x29 0x37 0x14
+        payload[0] = 0x14;
+        err = mipi_dsi_dcs_write(dsi, 0x37, payload, 1);
+        if (err < 0)
+                return err;
+
+	//mipi.write 0x29 0x14 0xE4
+        payload[0] = 0xE4;
+        err = mipi_dsi_dcs_write(dsi, 0x14, payload, 1);
+        if (err < 0)
+                return err;
+
+        return 0;
+}
+EXPORT_SYMBOL(mipi_dsi_dcs_get_display_osc);
+
+int mipi_dsi_dcs_get_display_gamma(struct mipi_dsi_device *dsi)
+{
+        ssize_t err;
+        u8 payload[5] = { 0 };
+
+	printk("drm dsi mipi_dsi_dcs_get_display_gamma func enter\n");
+	// (1) Write Enable for Volatile Status Register
+	//mipi.write 0x29 0xB0 0x04
+	payload[0] = 0x04;
+        err = mipi_dsi_dcs_write(dsi, 0xB0, payload, 1);
+        if (err < 0)
+                return err;
+
+	//mipi.write 0x29 0xF1 0x01
+        payload[0] = 0x01;
+        err = mipi_dsi_dcs_write(dsi, 0xF1, payload, 1);
+        if (err < 0)
+                return err;
+
+	//mipi.write 0x29 0xDF 0x40 0x58
+	payload[0] = 0x40;
+	payload[1] = 0x58;
+        err = mipi_dsi_dcs_write(dsi, 0xDF, payload, 2);
+        if (err < 0)
+                return err;
+
+	//mipi.write 0x29 0xF3 0x50 0x00 0x00 0x00 0x00
+	payload[0] = 0x50;
+        payload[1] = 0x00;
+	payload[2] = 0x00;
+	payload[3] = 0x00;
+	payload[4] = 0x00;
+        err = mipi_dsi_dcs_write(dsi, 0xF3, payload, 5);
+        if (err < 0)
+                return err;
+
+	//mipi.write 0x29 0xF2 0x11
+        payload[0] = 0x11;
+        err = mipi_dsi_dcs_write(dsi, 0xF2, payload, 1);
+        if (err < 0)
+                return err;
+
+	//delay 100
+	msleep(120);
+
+	// (2) Write Status Register 2 (QE=1)
+	//mipi.write 0x29 0xF3 0x01 0x00 0x00 0x00 0x01
+	payload[0] = 0x01;
+        payload[1] = 0x00;
+        payload[2] = 0x00;
+        payload[3] = 0x00;
+        payload[4] = 0x01;
+        err = mipi_dsi_dcs_write(dsi, 0xF3, payload, 5);
+        if (err < 0)
+                return err;
+
+
+	//mipi.write 0x29 0xF4 0x00 0x02
+	payload[0] = 0x00;
+        payload[1] = 0x02;
+        err = mipi_dsi_dcs_write(dsi, 0xF4, payload, 2);
+        if (err < 0)
+                return err;
+
+	//mipi.write 0x29 0xF2 0x19
+	payload[0] = 0x19;
+        err = mipi_dsi_dcs_write(dsi, 0xF2, payload, 1);
+        if (err < 0)
+                return err;
+
+	//delay 100
+	msleep(120);
+
+        return 0;
+}
+EXPORT_SYMBOL(mipi_dsi_dcs_get_display_gamma);
+
+int mipi_dsi_dcs_get_display_gamma_c(struct mipi_dsi_device *dsi, int c)
+{
+        ssize_t err;
+        u8 payload[5] = { 0 };
+
+	printk("drm dsi mipi_dsi_dcs_get_display_gamma_c func enter, c = %d\n", c);
+        // STEP 1, get OSC
+        //mipi.write 0x29 0xB0 0x04
+        payload[0] = 0x04;
+        err = mipi_dsi_dcs_write(dsi, 0xB0, payload, 1);
+        if (err < 0)
+                return err;
+
+        //mipi.write 0x29 0xE8 0x00 0x00 0x00 0x02
+        payload[0] = 0x00;
+        payload[1] = 0x00;
+        payload[2] = 0x00;
+        payload[3] = 0x02;
+        err = mipi_dsi_dcs_write(dsi, 0xE8, payload, 4);
+        if (err < 0)
+                return err;
+
+        //mipi.write 0x29 0x37 0x14
+        payload[0] = 0x14;
+        err = mipi_dsi_dcs_write(dsi, 0x37, payload, 1);
+        if (err < 0)
+                return err;
+
+        //mipi.write 0x29 0x14 0xE4
+        payload[0] = 0xE4;
+        err = mipi_dsi_dcs_write(dsi, 0x14, payload, 1);
+        if (err < 0)
+                return err;
+
+	// (3) Flash Read
+	//mipi.write 0x29 0xF1 0x01
+	payload[0] = 0x01;
+        err = mipi_dsi_dcs_write(dsi, 0xF1, payload, 1);
+        if (err < 0)
+                return err;
+
+	//mipi.write 0x29 0xDF 0x42 0x58
+        payload[0] = 0x42;
+	payload[1] = 0x58;
+        err = mipi_dsi_dcs_write(dsi, 0xDF, payload, 2);
+        if (err < 0)
+                return err;
+
+	// Gamma
+	//mipi.write 0x29 0xF3 0x6B 0x00 0x01 0x00 0x90    #Read Start Address:000100h, Read byte number:0x90bytes      #Gamma C7 for 120hz
+	//mipi.write 0x29 0xF3 0x6B 0x00 0x02 0x00 0x90    #Read Start Address:000200h, Read byte number:0x90bytes      #Gamma C8 for 120hz
+	//mipi.write 0x29 0xF3 0x6B 0x00 0x03 0x00 0x90    #Read Start Address:000300h, Read byte number:0x90bytes      #Gamma C9 for 120hz
+	//mipi.write 0x29 0xF3 0x6B 0x00 0x04 0x00 0x90    #Read Start Address:000400h, Read byte number:0x90bytes      #Gamma CA for 120hz
+	//mipi.write 0x29 0xF3 0x6B 0x00 0x05 0x00 0x90    #Read Start Address:000500h, Read byte number:0x90bytes      #Gamma CB for 120hz
+	payload[0] = 0x6B;
+        payload[1] = 0x00;
+
+       switch (c) {
+                case 7 :
+			payload[2] = 0x01;
+                        break;
+                case 8 :
+			payload[2] = 0x02;
+                        break;
+                case 9 :
+			payload[2] = 0x03;
+                        break;
+                case 10 :
+			payload[2] = 0x04;
+                        break;
+                case 11 :
+			payload[2] = 0x05;
+                        break;
+                default :
+			payload[2] = 0x01;
+
+        }
+
+        payload[3] = 0x00;
+	payload[4] = 0x90;
+        err = mipi_dsi_dcs_write(dsi, 0xF3, payload, 5);
+        if (err < 0)
+                return err;
+
+	//mipi.write 0x29 0xF2 0x0F
+	payload[0] = 0x0F;
+        err = mipi_dsi_dcs_write(dsi, 0xF2, payload, 1);
+        if (err < 0)
+                return err;
+
+	//delay 100
+	msleep(120);
+
+	// (4)Read F4h(SPI Buffer Register)
+	//mipi.write 0x37 0x90
+	payload[0] = 0x90;
+        err = mipi_dsi_dcs_write(dsi, 0x37, payload, 1);
+        if (err < 0)
+                return err;
+
+	//mipi.write 0x14 0xF4
+        payload[0] = 0xF4;
+        err = mipi_dsi_dcs_write(dsi, 0x14, payload, 1);
+        if (err < 0)
+                return err;
+
+	//mipi.read
+
+        return 0;
+}
+EXPORT_SYMBOL(mipi_dsi_dcs_get_display_gamma_c);
+
+int mipi_dsi_dcs_get_display_gamma_normal(struct mipi_dsi_device *dsi)
+{
+        ssize_t err;
+        u8 payload[5] = { 0 };
+
+	printk("drm dsi mipi_dsi_dcs_get_display_gamma_normal func enter\n");
+	// (1) Write Enable for Volatile Status Register
+	//mipi.write 0x29 0xB0 0x00
+	payload[0] = 0x00;
+        err = mipi_dsi_dcs_write(dsi, 0xB0, payload, 1);
+        if (err < 0)
+                return err;
+
+        return 0;
+}
+EXPORT_SYMBOL(mipi_dsi_dcs_get_display_gamma_normal);
+
+int mipi_dsi_dcs_set_display_osc(struct mipi_dsi_device *dsi)
+{
+        ssize_t err;
+        u8 payload[5] = { 0 };
+
+	printk("drm dsi mipi_dsi_dcs_set_display_osc func enter\n");
+        // STEP 1, set OSC
+        //mipi.write 0x29 0xB0 0x04
+        payload[0] = 0x04;
+        err = mipi_dsi_dcs_write(dsi, 0xB0, payload, 1);
+        if (err < 0)
+                return err;
+
+        //mipi.write 0x29 0xE8 0x00 0x02
+        payload[0] = 0x00;
+        payload[1] = 0x02;
+        err = mipi_dsi_dcs_write(dsi, 0xE8, payload, 2);
+        if (err < 0)
+                return err;
+
+        //mipi.write 0x29 0xE4 0x00 0xXX
+        payload[0] = 0x00;
+	payload[1] = osc_val[19];
+        err = mipi_dsi_dcs_write(dsi, 0xE4, payload, 2);
+        if (err < 0)
+                return err;
+
+	printk("drm dsi mipi_dsi_dcs_set_display_osc func exit\n");
+        return 0;
+}
+EXPORT_SYMBOL(mipi_dsi_dcs_set_display_osc);
+
+int mipi_dsi_dcs_set_display_gamma(struct mipi_dsi_device *dsi)
+{
+        ssize_t err;
+        u8 payload[5] = { 0 };
+
+	printk("drm dsi mipi_dsi_dcs_set_display_gamma func enter\n");
+        // STEP 1, set OSC
+        //mipi.write 0x29 0xB0 0x00
+        payload[0] = 0x00;
+        err = mipi_dsi_dcs_write(dsi, 0xB0, payload, 1);
+        if (err < 0)
+                return err;
+
+        //mipi.write C7
+        err = mipi_dsi_dcs_write(dsi, 0xC7, gamma_c7, 144);
+        if (err < 0)
+                return err;
+
+        //mipi.write C8
+        err = mipi_dsi_dcs_write(dsi, 0xC8, gamma_c8, 144);
+        if (err < 0)
+                return err;
+
+        //mipi.write C9
+        err = mipi_dsi_dcs_write(dsi, 0xC9, gamma_c9, 144);
+        if (err < 0)
+                return err;
+
+        //mipi.write CA
+        err = mipi_dsi_dcs_write(dsi, 0xCA, gamma_ca, 144);
+        if (err < 0)
+                return err;
+
+        //mipi.write CB
+        err = mipi_dsi_dcs_write(dsi, 0xCB, gamma_cb, 144);
+        if (err < 0)
+                return err;
+
+	printk("drm dsi mipi_dsi_dcs_set_display_gamma func exit\n");
+        return 0;
+}
+EXPORT_SYMBOL(mipi_dsi_dcs_set_display_gamma);
+
+int mipi_dsi_dcs_set_display_gamma_normal(struct mipi_dsi_device *dsi)
+{
+        ssize_t err;
+        u8 payload[5] = { 0 };
+
+	printk("drm dsi mipi_dsi_dcs_set_display_gamma_normal func enter\n");
+        // STEP 1, set OSC
+        //mipi.write 0x29 0xB0 0x00
+        payload[0] = 0x00;
+        err = mipi_dsi_dcs_write(dsi, 0xB0, payload, 1);
+        if (err < 0)
+                return err;
+
+        //mipi.write C7
+        err = mipi_dsi_dcs_write(dsi, 0xC7, gamma_c7_normal, 144);
+        if (err < 0)
+                return err;
+
+        //mipi.write C8
+        err = mipi_dsi_dcs_write(dsi, 0xC8, gamma_c8_normal, 144);
+        if (err < 0)
+                return err;
+
+        //mipi.write C9
+        err = mipi_dsi_dcs_write(dsi, 0xC9, gamma_c9_normal, 144);
+        if (err < 0)
+                return err;
+
+        //mipi.write CA
+        err = mipi_dsi_dcs_write(dsi, 0xCA, gamma_ca_normal, 144);
+        if (err < 0)
+                return err;
+
+        //mipi.write CB
+        err = mipi_dsi_dcs_write(dsi, 0xCB, gamma_cb_normal, 144);
+        if (err < 0)
+                return err;
+
+	printk("drm dsi mipi_dsi_dcs_set_display_gamma_normal func exit\n");
+        return 0;
+}
+EXPORT_SYMBOL(mipi_dsi_dcs_set_display_gamma_normal);
+#endif
 
 static int mipi_dsi_drv_probe(struct device *dev)
 {

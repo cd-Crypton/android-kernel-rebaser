@@ -3304,11 +3304,16 @@ static int dwc3_msm_vbus_notifier(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
+#ifdef CONFIG_PRODUCT_MOBA
+extern int fusb_init_fail;
+#endif
+
 static int dwc3_msm_extcon_register(struct dwc3_msm *mdwc)
 {
 	struct device_node *node = mdwc->dev->of_node;
 	struct extcon_dev *edev;
 	int idx, extcon_cnt, ret = 0;
+
 	bool check_vbus_state, check_id_state, phandle_found = false;
 
 	extcon_cnt = of_count_phandle_with_args(node, "extcon", NULL);
@@ -3316,6 +3321,13 @@ static int dwc3_msm_extcon_register(struct dwc3_msm *mdwc)
 		dev_err(mdwc->dev, "of_count_phandle_with_args failed\n");
 		return -ENODEV;
 	}
+
+#ifdef CONFIG_PRODUCT_MOBA
+       if(extcon_cnt == 1&& fusb_init_fail==1){
+             pr_info("FUSB  %s - Error: dwc3_msm_extcon_register failed! ,extcon_cnt=%d,fusb_init_fail=%d\n", __func__,extcon_cnt,fusb_init_fail);
+             return -ENODEV;
+	}
+#endif
 
 	mdwc->extcon = devm_kcalloc(mdwc->dev, extcon_cnt,
 					sizeof(*mdwc->extcon), GFP_KERNEL);

@@ -19,9 +19,21 @@
 #include <linux/regulator/machine.h>
 #include <linux/iio/consumer.h>
 #include <linux/pmic-voter.h>
+#ifdef CONFIG_PRODUCT_MOBA
+#include <linux/of_gpio.h>
+#include <linux/gpio.h>
+#endif
 #include "smb5-reg.h"
 #include "smb5-lib.h"
 #include "schgm-flash.h"
+
+#ifdef CONFIG_PRODUCT_MOBA
+extern int debug_temp_enable;
+int get_batt1_vol;
+bool is_protect_data;
+extern int qcom_charger_online;
+extern void charger_insert_remove_process(struct smb_charger *chg, int online);
+#endif
 
 static struct smb_params smb5_pmi632_params = {
 	.fcc			= {
@@ -226,7 +238,16 @@ struct smb5 {
 	struct smb_dt_props	dt;
 };
 
-static int __debug_mask;
+#ifdef CONFIG_PRODUCT_MOBA
+static struct smb_charger *__smbchg;
+static int fac_chg_enable = 1;
+int force_usb_suspend = 0;
+int fac_chip_read_enabled = 0;
+extern int qcom_pd_enable;
+extern bool fusb_pd_enable;
+#endif
+
+static int __debug_mask = 0x3D;
 
 static ssize_t pd_disabled_show(struct device *dev, struct device_attribute
 				*attr, char *buf)
@@ -497,7 +518,83 @@ static int smb5_parse_dt_misc(struct smb5 *chip, struct device_node *node)
 			return rc;
 		}
 	}
+#ifdef CONFIG_PRODUCT_MOBA
+	if (of_find_property(node, "qcom,thermal-mitigation-display-rate", &byte_len)) {
+		chg->thermal_mitigation_display_rate = devm_kzalloc(chg->dev, byte_len,
+			GFP_KERNEL);
 
+		if (chg->thermal_mitigation_display_rate == NULL)
+			return -ENOMEM;
+
+		chg->thermal_levels_display_rate = byte_len / sizeof(u32);
+		rc = of_property_read_u32_array(node,
+				"qcom,thermal-mitigation-display-rate",
+				chg->thermal_mitigation_display_rate,
+				chg->thermal_levels_display_rate);
+		if (rc < 0) {
+			dev_err(chg->dev,
+				"Couldn't read thermal display refresh rate limits rc = %d\n", rc);
+			return rc;
+		}
+	}
+
+	if (of_find_property(node, "qcom,thermal-mitigation-speaker", &byte_len)) {
+		chg->thermal_mitigation_speaker = devm_kzalloc(chg->dev, byte_len,
+			GFP_KERNEL);
+
+		if (chg->thermal_mitigation_speaker == NULL)
+			return -ENOMEM;
+
+		chg->thermal_levels_speaker = byte_len / sizeof(u32);
+		rc = of_property_read_u32_array(node,
+				"qcom,thermal-mitigation-speaker",
+				chg->thermal_mitigation_speaker,
+				chg->thermal_levels_speaker);
+		if (rc < 0) {
+			dev_err(chg->dev,
+				"Couldn't read thermal speaker limits rc = %d\n", rc);
+			return rc;
+		}
+	}
+
+	if (of_find_property(node, "qcom,thermal-mitigation-camera", &byte_len)) {
+		chg->thermal_mitigation_camera = devm_kzalloc(chg->dev, byte_len,
+			GFP_KERNEL);
+
+		if (chg->thermal_mitigation_camera == NULL)
+			return -ENOMEM;
+
+		chg->thermal_levels_camera = byte_len / sizeof(u32);
+		rc = of_property_read_u32_array(node,
+				"qcom,thermal-mitigation-camera",
+				chg->thermal_mitigation_camera,
+				chg->thermal_levels_camera);
+		if (rc < 0) {
+			dev_err(chg->dev,
+				"Couldn't read thermal camera limits rc = %d\n", rc);
+			return rc;
+		}
+	}
+
+	if (of_find_property(node, "qcom,thermal-mitigation-modem-5g", &byte_len)) {
+		chg->thermal_mitigation_modem_5g = devm_kzalloc(chg->dev, byte_len,
+			GFP_KERNEL);
+
+		if (chg->thermal_mitigation_modem_5g == NULL)
+			return -ENOMEM;
+
+		chg->thermal_levels_modem_5g = byte_len / sizeof(u32);
+		rc = of_property_read_u32_array(node,
+				"qcom,thermal-mitigation-modem-5g",
+				chg->thermal_mitigation_modem_5g,
+				chg->thermal_levels_modem_5g);
+		if (rc < 0) {
+			dev_err(chg->dev,
+				"Couldn't read thermal modem 5g limits rc = %d\n", rc);
+			return rc;
+		}
+	}
+#endif
 	rc = of_property_read_u32(node, "qcom,charger-temp-max",
 			&chg->charger_temp_max);
 	if (rc < 0)
@@ -843,6 +940,20 @@ static enum power_supply_property smb5_usb_props[] = {
 	POWER_SUPPLY_PROP_INPUT_CURRENT_SETTLED,
 	POWER_SUPPLY_PROP_INPUT_CURRENT_NOW,
 	POWER_SUPPLY_PROP_BOOST_CURRENT,
+#ifdef CONFIG_PRODUCT_MOBA
+	POWER_SUPPLY_PROP_CHARGE_PATH_1T1,
+	POWER_SUPPLY_PROP_CHARGE_PATH_1T2,
+	POWER_SUPPLY_PROP_CHARGE_PATH_2T1,
+	POWER_SUPPLY_PROP_CHARGE_PATH_2T2,
+	POWER_SUPPLY_PROP_PMIC_REGISTER_1,
+	POWER_SUPPLY_PROP_PMIC_REGISTER_2,
+	POWER_SUPPLY_PROP_FORCE_FIRST_MAIN_ICL,
+	POWER_SUPPLY_PROP_FORCE_FIRST_MAIN_FCC,
+	POWER_SUPPLY_PROP_FORCE_FIRST_MAIN_FV,
+	POWER_SUPPLY_PROP_SEC_ONLINE,
+	POWER_SUPPLY_PROP_FIRST_PD_TYPE,
+	POWER_SUPPLY_PROP_SEC_PD_TYPE,
+#endif
 	POWER_SUPPLY_PROP_PE_START,
 	POWER_SUPPLY_PROP_CTM_CURRENT_MAX,
 	POWER_SUPPLY_PROP_HW_CURRENT_MAX,
@@ -870,6 +981,11 @@ static enum power_supply_property smb5_usb_props[] = {
 	POWER_SUPPLY_PROP_INPUT_VOLTAGE_SETTLED,
 };
 
+#ifdef CONFIG_PRODUCT_MOBA
+extern int get_charge_path_status(struct smb_charger *chg, int n);
+extern int get_register(struct smb_charger *chg, u16 reg);
+#endif
+
 static int smb5_usb_get_prop(struct power_supply *psy,
 		enum power_supply_property psp,
 		union power_supply_propval *val)
@@ -885,7 +1001,11 @@ static int smb5_usb_get_prop(struct power_supply *psy,
 		rc = smblib_get_prop_usb_present(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_ONLINE:
+#ifdef CONFIG_PRODUCT_MOBA
+		val->intval = qcom_charger_online ? 1:0;
+#else
 		rc = smblib_get_usb_online(chg, val);
+#endif
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN:
 		rc = smblib_get_prop_usb_voltage_max_design(chg, val);
@@ -938,6 +1058,44 @@ static int smb5_usb_get_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_NOW:
 		rc = smblib_get_prop_usb_current_now(chg, val);
 		break;
+#ifdef CONFIG_PRODUCT_MOBA
+	case POWER_SUPPLY_PROP_CHARGE_PATH_1T1:
+		val->intval = get_charge_path_status(chg, 1);
+		break;
+	case POWER_SUPPLY_PROP_CHARGE_PATH_1T2:
+		val->intval = get_charge_path_status(chg, 2);
+		break;
+	case POWER_SUPPLY_PROP_CHARGE_PATH_2T1:
+		val->intval = get_charge_path_status(chg, 3);
+		break;
+	case POWER_SUPPLY_PROP_CHARGE_PATH_2T2:
+		val->intval = get_charge_path_status(chg, 4);
+		break;
+	case POWER_SUPPLY_PROP_PMIC_REGISTER_1:
+		val->intval = get_register(chg, 0x150e);
+		break;
+	case POWER_SUPPLY_PROP_PMIC_REGISTER_2:
+		val->intval = get_register(chg, 0x1506);
+		break;
+	case POWER_SUPPLY_PROP_FORCE_FIRST_MAIN_ICL:
+		val->intval = chg->first_main_icl_ua;
+		break;
+	case POWER_SUPPLY_PROP_FORCE_FIRST_MAIN_FCC:
+		val->intval = chg->first_main_fcc_ua;
+		break;
+	case POWER_SUPPLY_PROP_FORCE_FIRST_MAIN_FV:
+		val->intval = chg->first_main_fv_uv;
+		break;
+	case POWER_SUPPLY_PROP_SEC_ONLINE:
+		val->intval = chg->sec_online;
+		break;
+	case POWER_SUPPLY_PROP_FIRST_PD_TYPE:
+		val->intval = qcom_pd_enable;
+		break;
+	case POWER_SUPPLY_PROP_SEC_PD_TYPE:
+		val->intval = fusb_pd_enable;
+		break;
+#endif
 	case POWER_SUPPLY_PROP_BOOST_CURRENT:
 		val->intval = chg->boost_current_ua;
 		break;
@@ -1044,7 +1202,8 @@ static int smb5_usb_get_prop(struct power_supply *psy,
 
 	if (rc < 0) {
 		pr_debug("Couldn't get prop %d rc = %d\n", psp, rc);
-		return -ENODATA;
+		//return -ENODATA;
+		val->intval = -1000;
 	}
 
 	return 0;
@@ -1119,6 +1278,41 @@ static int smb5_usb_set_prop(struct power_supply *psy,
 		else
 			rc = -EINVAL;
 		break;
+#ifdef CONFIG_PRODUCT_MOBA
+	case POWER_SUPPLY_PROP_FORCE_FIRST_MAIN_ICL:
+		if (force_usb_suspend)
+			break;
+
+		vote_override(chg->usb_icl_votable, FIRST_MAIN_LIMIT_VOTER,
+				(val->intval < 0) ? false : true, val->intval);
+		chg->first_main_icl_ua = val->intval;
+		break;
+	case POWER_SUPPLY_PROP_FORCE_FIRST_MAIN_FCC:
+		if (force_usb_suspend)
+			break;
+
+		vote_override(chg->fcc_votable, FIRST_MAIN_LIMIT_VOTER,
+				(val->intval < 0) ? false : true, val->intval);
+		chg->first_main_fcc_ua = val->intval;
+		if (val->intval > 500000)
+			rerun_election(chg->fcc_votable);
+		break;
+	case POWER_SUPPLY_PROP_FORCE_FIRST_MAIN_FV:
+		if (force_usb_suspend)
+			break;
+
+		vote_override(chg->fv_votable, FIRST_MAIN_LIMIT_VOTER,
+				(val->intval < 0) ? false : true, val->intval);
+		chg->first_main_fv_uv = val->intval;
+		//rerun_election(chg->fcc_votable);
+		break;
+	case POWER_SUPPLY_PROP_SEC_ONLINE:
+		if (val->intval != chg->sec_online) {
+			pr_info("batt_sys: second main charger insert or remove event : %d to %d\n", chg->sec_online, val->intval);
+			charger_insert_remove_process(chg, chg->sec_online);
+		}
+		break;
+#endif
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX_LIMIT:
 		smblib_set_prop_usb_voltage_max_limit(chg, val);
 		break;
@@ -1149,6 +1343,12 @@ static int smb5_usb_prop_is_writeable(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX_LIMIT:
 	case POWER_SUPPLY_PROP_ADAPTER_CC_MODE:
 	case POWER_SUPPLY_PROP_APSD_RERUN:
+#ifdef CONFIG_PRODUCT_MOBA
+	case POWER_SUPPLY_PROP_FORCE_FIRST_MAIN_ICL:
+	case POWER_SUPPLY_PROP_FORCE_FIRST_MAIN_FCC:
+	case POWER_SUPPLY_PROP_FORCE_FIRST_MAIN_FV:
+	case POWER_SUPPLY_PROP_SEC_ONLINE:
+#endif
 		return 1;
 	default:
 		break;
@@ -1181,7 +1381,6 @@ static int smb5_init_usb_psy(struct smb5 *chip)
 		pr_err("Couldn't register USB power supply\n");
 		return PTR_ERR(chg->usb_psy);
 	}
-
 	return 0;
 }
 
@@ -1283,6 +1482,198 @@ static int smb5_init_usb_port_psy(struct smb5 *chip)
 	return 0;
 }
 
+#ifdef CONFIG_PRODUCT_MOBA
+/*************************
+ * THERM PSY REGISTRATION   *
+ *************************/
+
+static enum power_supply_property smb5_thermal_props[] = {
+	POWER_SUPPLY_PROP_THERM_DISPLAY_RATE_LEVEL,
+	POWER_SUPPLY_PROP_THERM_DISPLAY_RATE_LEVEL_MAX,
+	POWER_SUPPLY_PROP_THERM_DISPLAY_RATE,
+	POWER_SUPPLY_PROP_THERM_DISPLAY_RATE_LIMIT,
+	POWER_SUPPLY_PROP_THERM_SPEAKER_LEVEL,
+	POWER_SUPPLY_PROP_THERM_SPEAKER_LEVEL_MAX,
+	POWER_SUPPLY_PROP_THERM_SPEAKER,
+	POWER_SUPPLY_PROP_THERM_SPEAKER_LIMIT,
+	POWER_SUPPLY_PROP_THERM_MODEM_5G_LEVEL,
+	POWER_SUPPLY_PROP_THERM_MODEM_5G_LEVEL_MAX,
+	POWER_SUPPLY_PROP_THERM_MODEM_5G,
+	POWER_SUPPLY_PROP_THERM_MODEM_5G_LIMIT,
+	POWER_SUPPLY_PROP_THERM_CAMERA_LEVEL,
+	POWER_SUPPLY_PROP_THERM_CAMERA_LEVEL_MAX,
+	POWER_SUPPLY_PROP_THERM_CAMERA,
+	POWER_SUPPLY_PROP_THERM_CAMERA_LIMIT,
+};
+
+static int smb5_thermal_get_prop(struct power_supply *psy,
+		enum power_supply_property psp,
+		union power_supply_propval *val)
+{
+	struct smb5 *chip = power_supply_get_drvdata(psy);
+	struct smb_charger *chg = &chip->chg;
+	int rc = 0;
+
+	switch (psp) {
+	case POWER_SUPPLY_PROP_THERM_DISPLAY_RATE_LEVEL:
+		rc = smblib_get_prop_therm_display_rate_level(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_THERM_DISPLAY_RATE_LEVEL_MAX:
+		rc = smblib_get_prop_therm_display_rate_level_max(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_THERM_DISPLAY_RATE:
+		rc = smblib_get_prop_therm_display_rate(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_THERM_DISPLAY_RATE_LIMIT:
+		rc = smblib_get_prop_therm_display_rate_limit(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_THERM_SPEAKER_LEVEL:
+		rc = smblib_get_prop_therm_speaker_level(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_THERM_SPEAKER_LEVEL_MAX:
+		rc = smblib_get_prop_therm_speaker_level_max(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_THERM_SPEAKER:
+		rc = smblib_get_prop_therm_speaker(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_THERM_SPEAKER_LIMIT:
+		rc = smblib_get_prop_therm_speaker_limit(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_THERM_MODEM_5G_LEVEL:
+		rc = smblib_get_prop_therm_modem_5g_level(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_THERM_MODEM_5G_LEVEL_MAX:
+		rc = smblib_get_prop_therm_modem_5g_level_max(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_THERM_MODEM_5G:
+		rc = smblib_get_prop_therm_modem_5g(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_THERM_MODEM_5G_LIMIT:
+		rc = smblib_get_prop_therm_modem_5g_limit(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_THERM_CAMERA_LEVEL:
+		rc = smblib_get_prop_therm_camera_level(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_THERM_CAMERA_LEVEL_MAX:
+		rc = smblib_get_prop_therm_camera_level_max(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_THERM_CAMERA:
+		rc = smblib_get_prop_therm_camera(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_THERM_CAMERA_LIMIT:
+		rc = smblib_get_prop_therm_camera_limit(chg, val);
+		break;
+	default:
+		return -EINVAL;
+	}
+	if (rc < 0) {
+		pr_debug("Couldn't get prop %d rc = %d\n", psp, rc);
+		return -ENODATA;
+	}
+	return 0;
+}
+
+static int smb5_thermal_set_prop(struct power_supply *psy,
+		enum power_supply_property psp,
+		const union power_supply_propval *val)
+{
+	struct smb5 *chip = power_supply_get_drvdata(psy);
+	struct smb_charger *chg = &chip->chg;
+	int rc = 0;
+
+	switch (psp) {
+	case POWER_SUPPLY_PROP_THERM_DISPLAY_RATE_LEVEL:
+		pr_info("batt_sys: write display rate level %d\n", val->intval);
+		rc = smblib_set_prop_therm_display_rate_level(chg, val);
+		power_supply_changed(chg->thermal_psy);
+		break;
+	case POWER_SUPPLY_PROP_THERM_DISPLAY_RATE:
+		pr_info("batt_sys: write current display rate value %d\n", val->intval);
+		rc = smblib_set_prop_therm_display_rate(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_THERM_SPEAKER_LEVEL:
+		pr_info("batt_sys: write speaker level %d\n", val->intval);
+		rc = smblib_set_prop_therm_speaker_level(chg, val);
+		power_supply_changed(chg->thermal_psy);
+		break;
+	case POWER_SUPPLY_PROP_THERM_SPEAKER:
+		pr_info("batt_sys: write current speaker value %d\n", val->intval);
+		rc = smblib_set_prop_therm_speaker(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_THERM_MODEM_5G_LEVEL:
+		pr_info("batt_sys: write modem 5g level %d\n", val->intval);
+		rc = smblib_set_prop_therm_modem_5g_level(chg, val);
+		power_supply_changed(chg->thermal_psy);
+		break;
+	case POWER_SUPPLY_PROP_THERM_MODEM_5G:
+		pr_info("batt_sys: write current modem 5g value %d\n", val->intval);
+		rc = smblib_set_prop_therm_modem_5g(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_THERM_CAMERA_LEVEL:
+		pr_info("batt_sys: write camera level %d\n", val->intval);
+		rc = smblib_set_prop_therm_camera_level(chg, val);
+		power_supply_changed(chg->thermal_psy);
+		break;
+	case POWER_SUPPLY_PROP_THERM_CAMERA:
+		pr_info("batt_sys: write current camera value %d\n", val->intval);
+		rc = smblib_set_prop_therm_camera(chg, val);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return rc;
+}
+
+static int smb5_thermal_prop_is_writeable(struct power_supply *psy,
+		enum power_supply_property psp)
+{
+	switch (psp) {
+	case POWER_SUPPLY_PROP_THERM_DISPLAY_RATE_LEVEL:
+	case POWER_SUPPLY_PROP_THERM_DISPLAY_RATE:
+	case POWER_SUPPLY_PROP_THERM_SPEAKER_LEVEL:
+	case POWER_SUPPLY_PROP_THERM_SPEAKER:
+	case POWER_SUPPLY_PROP_THERM_MODEM_5G_LEVEL:
+	case POWER_SUPPLY_PROP_THERM_MODEM_5G:
+	case POWER_SUPPLY_PROP_THERM_CAMERA_LEVEL:
+	case POWER_SUPPLY_PROP_THERM_CAMERA:
+		return 1;
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+static const struct power_supply_desc thermal_psy_desc = {
+	.name = "thermal",
+	.type = POWER_SUPPLY_TYPE_THERMAL,
+	.properties = smb5_thermal_props,
+	.num_properties = ARRAY_SIZE(smb5_thermal_props),
+	.get_property = smb5_thermal_get_prop,
+	.set_property = smb5_thermal_set_prop,
+	.property_is_writeable = smb5_thermal_prop_is_writeable,
+};
+
+static int smb5_init_thermal_psy(struct smb5 *chip)
+{
+	struct power_supply_config thermal_cfg = {};
+	struct smb_charger *chg = &chip->chg;
+
+	thermal_cfg.drv_data = chip;
+	thermal_cfg.of_node = chg->dev->of_node;
+	chg->thermal_psy = devm_power_supply_register(chg->dev,
+						  &thermal_psy_desc,
+						  &thermal_cfg);
+	if (IS_ERR(chg->thermal_psy)) {
+		pr_err("Couldn't register thermal power supply\n");
+		return PTR_ERR(chg->thermal_psy);
+	}
+
+	return 0;
+}
+#endif
+
 /*****************************
  * USB MAIN PSY REGISTRATION *
  *****************************/
@@ -1379,8 +1770,11 @@ static int smb5_usb_main_get_prop(struct power_supply *psy,
 		rc = -EINVAL;
 		break;
 	}
-	if (rc < 0)
+	if (rc < 0) {
 		pr_debug("Couldn't get prop %d rc = %d\n", psp, rc);
+		//return -ENODATA;
+		val->intval = -1000;
+	}
 
 	return rc;
 }
@@ -1674,6 +2068,138 @@ static int smb5_init_dc_psy(struct smb5 *chip)
 	return 0;
 }
 
+#ifdef USE_TI_FG
+#if 0
+int smblib_get_prop_capacity_fg_output(struct smb_charger *chg,
+				  union power_supply_propval *val)
+{
+	int rc = -EINVAL;
+
+	if (!chg->master_fg_psy) {
+		chg->master_fg_psy = power_supply_get_by_name("bq27z561-master");
+		if (!chg->master_fg_psy)
+			return -ENODEV;
+	}
+
+	rc = power_supply_get_property(chg->master_fg_psy,
+				POWER_SUPPLY_PROP_CAPACITY,
+				val);
+	if (rc < 0)
+		dev_err(chg->dev, "Couldn't get master fg POWER_SUPPLY_PROP_CAPACITY, rc=%d\n",
+				rc);
+
+	return 0;
+}
+#else
+int smblib_get_prop_capacity_fg_output(struct smb_charger *chg,
+				  union power_supply_propval *val)
+{
+	int rc = -EINVAL;
+
+	if (!chg->bq_battery_psy) {
+		chg->bq_battery_psy = power_supply_get_by_name("bq-battery");
+		if (!chg->bq_battery_psy)
+			return -ENODEV;
+	}
+
+	rc = power_supply_get_property(chg->bq_battery_psy,
+				POWER_SUPPLY_PROP_CAPACITY,
+				val);
+	if (rc < 0)
+		dev_err(chg->dev, "Couldn't get bq battery POWER_SUPPLY_PROP_CAPACITY, rc=%d\n",
+				rc);
+
+	return 0;
+}
+#endif
+
+int smblib_get_prop_current_now_fg_output(struct smb_charger *chg,
+				  union power_supply_propval *val)
+{
+	int rc = -EINVAL;
+
+	if (!chg->master_fg_psy) {
+		chg->master_fg_psy = power_supply_get_by_name("bq27z561-master");
+		if (!chg->master_fg_psy)
+			return -ENODEV;
+	}
+
+	rc = power_supply_get_property(chg->master_fg_psy,
+				POWER_SUPPLY_PROP_CURRENT_NOW,
+				val);
+	if (rc < 0)
+		dev_err(chg->dev, "Couldn't get master fg POWER_SUPPLY_PROP_CURRENT_NOW, rc=%d\n",
+				rc);
+
+	return 0;
+}
+
+int smblib_get_prop_voltage_now_fg_output(struct smb_charger *chg,
+				  union power_supply_propval *val)
+{
+	int rc = -EINVAL;
+
+	if (!chg->master_fg_psy) {
+		chg->master_fg_psy = power_supply_get_by_name("bq27z561-master");
+		if (!chg->master_fg_psy)
+			return -ENODEV;
+	}
+
+	rc = power_supply_get_property(chg->master_fg_psy,
+				POWER_SUPPLY_PROP_VOLTAGE_NOW,
+				val);
+	if (rc < 0)
+		dev_err(chg->dev, "Couldn't get master fg POWER_SUPPLY_PROP_VOLTAGE_NOW, rc=%d\n",
+				rc);
+
+	return 0;
+}
+
+#if 0
+int smblib_get_prop_battery_status_fg_output(struct smb_charger *chg,
+				  union power_supply_propval *val)
+{
+	int rc = -EINVAL;
+
+	if (!chg->master_fg_psy) {
+		chg->master_fg_psy = power_supply_get_by_name("bq27z561-master");
+		if (!chg->master_fg_psy)
+			return -ENODEV;
+	}
+
+	rc = power_supply_get_property(chg->master_fg_psy,
+				POWER_SUPPLY_PROP_STATUS,
+				val);
+	if (rc < 0)
+		dev_err(chg->dev, "Couldn't get master fg POWER_SUPPLY_PROP_STATUS, rc=%d\n",
+				rc);
+
+	return 0;
+}
+#else
+int smblib_get_prop_battery_status_fg_output(struct smb_charger *chg,
+				  union power_supply_propval *val)
+{
+	int rc = -EINVAL;
+
+	if (!chg->bq_battery_psy) {
+		chg->bq_battery_psy = power_supply_get_by_name("bq-battery");
+		if (!chg->bq_battery_psy)
+			return -ENODEV;
+	}
+
+	rc = power_supply_get_property(chg->bq_battery_psy,
+				POWER_SUPPLY_PROP_STATUS,
+				val);
+	if (rc < 0)
+		dev_err(chg->dev, "Couldn't get bq battery POWER_SUPPLY_PROP_STATUS, rc=%d\n",
+				rc);
+
+	return 0;
+}
+#endif
+#endif
+
 /*************************
  * BATT PSY REGISTRATION *
  *************************/
@@ -1713,6 +2239,21 @@ static enum power_supply_property smb5_batt_props[] = {
 	POWER_SUPPLY_PROP_CHARGE_FULL,
 	POWER_SUPPLY_PROP_FORCE_RECHARGE,
 	POWER_SUPPLY_PROP_FCC_STEPPER_ENABLE,
+#ifdef CONFIG_PRODUCT_MOBA
+	POWER_SUPPLY_PROP_CHARGING_ENABLED,
+	POWER_SUPPLY_PROP_DEBUG_TEMP,
+	POWER_SUPPLY_PROP_PROTECT_DATA,
+	POWER_SUPPLY_PROP_CHARGE_THERMAL_STATUS,
+	POWER_SUPPLY_PROP_FORCE_USB_SUSPEND,
+	POWER_SUPPLY_PROP_FAC_CHARGING_ENABLED,
+	POWER_SUPPLY_PROP_FAC_CHIP_READ_ENABLED,
+#endif
+#ifdef USE_TI_FG
+	POWER_SUPPLY_PROP_QCOM_CAPACITY,
+	POWER_SUPPLY_PROP_QCOM_CURRENT_NOW,
+	POWER_SUPPLY_PROP_QCOM_VOLTAGE_NOW,
+	POWER_SUPPLY_PROP_QCOM_STATUS,
+#endif
 };
 
 #define DEBUG_ACCESSORY_TEMP_DECIDEGC	250
@@ -1724,9 +2265,18 @@ static int smb5_batt_get_prop(struct power_supply *psy,
 	int rc = 0;
 
 	switch (psp) {
+#ifdef USE_TI_FG
+	case POWER_SUPPLY_PROP_STATUS:
+		rc = smblib_get_prop_battery_status_fg_output(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_QCOM_STATUS:
+		rc = smblib_get_prop_batt_status(chg, val);
+		break;
+#else
 	case POWER_SUPPLY_PROP_STATUS:
 		rc = smblib_get_prop_batt_status(chg, val);
 		break;
+#endif
 	case POWER_SUPPLY_PROP_HEALTH:
 		rc = smblib_get_prop_batt_health(chg, val);
 		break;
@@ -1739,12 +2289,26 @@ static int smb5_batt_get_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CHARGE_TYPE:
 		rc = smblib_get_prop_batt_charge_type(chg, val);
 		break;
+#ifdef USE_TI_FG
+	case POWER_SUPPLY_PROP_CAPACITY:
+		rc = smblib_get_prop_capacity_fg_output(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_QCOM_CAPACITY:
+		rc = smblib_get_prop_batt_capacity(chg, val);
+		break;
+#else
 	case POWER_SUPPLY_PROP_CAPACITY:
 		rc = smblib_get_prop_batt_capacity(chg, val);
 		break;
+#endif
 	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT:
 		rc = smblib_get_prop_system_temp_level(chg, val);
 		break;
+#ifdef CONFIG_PRODUCT_MOBA
+	case POWER_SUPPLY_PROP_CHARGE_THERMAL_STATUS:
+		rc = smblib_get_prop_charge_thermal_status(chg, val);
+		break;
+#endif
 	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT_MAX:
 		rc = smblib_get_prop_system_temp_level_max(chg, val);
 		break;
@@ -1763,10 +2327,26 @@ static int smb5_batt_get_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_SW_JEITA_ENABLED:
 		val->intval = chg->sw_jeita_enabled;
 		break;
+#ifdef USE_TI_FG
+	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+		rc = smblib_get_prop_voltage_now_fg_output(chg, val);
+#ifdef CONFIG_PRODUCT_MOBA
+		get_batt1_vol = val->intval;
+#endif
+		schedule_delayed_work(&chg->lenovo_monitor_ports_status_work,
+			msecs_to_jiffies(5000));
+		break;
+	case POWER_SUPPLY_PROP_QCOM_VOLTAGE_NOW:
+		rc = smblib_get_prop_from_bms(chg,
+				POWER_SUPPLY_PROP_VOLTAGE_NOW, val);
+
+		break;
+#else
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 		rc = smblib_get_prop_from_bms(chg,
 				POWER_SUPPLY_PROP_VOLTAGE_NOW, val);
 		break;
+#endif
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
 		val->intval = get_client_vote(chg->fv_votable,
 					      QNOVO_VOTER);
@@ -1778,9 +2358,39 @@ static int smb5_batt_get_prop(struct power_supply *psy,
 		val->intval = get_client_vote_locked(chg->fv_votable,
 				QNOVO_VOTER);
 		break;
+#ifdef CONFIG_PRODUCT_MOBA
+	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
+		val->intval = fac_chg_enable;
+		break;
+	case POWER_SUPPLY_PROP_DEBUG_TEMP:
+		val->intval = debug_temp_enable;
+		break;
+	case POWER_SUPPLY_PROP_PROTECT_DATA:
+		val->intval = is_protect_data;
+		break;
+	case POWER_SUPPLY_PROP_FORCE_USB_SUSPEND:
+		val->intval = force_usb_suspend;
+		break;
+	case POWER_SUPPLY_PROP_FAC_CHARGING_ENABLED:
+		val->intval = fac_chg_enable;
+		break;
+	case POWER_SUPPLY_PROP_FAC_CHIP_READ_ENABLED:
+		val->intval = fac_chip_read_enabled;
+		break;
+#endif
+#ifdef USE_TI_FG
+	case POWER_SUPPLY_PROP_CURRENT_NOW:
+		rc = smblib_get_prop_current_now_fg_output(chg, val);
+		val->intval = val->intval * -1;
+		break;
+	case POWER_SUPPLY_PROP_QCOM_CURRENT_NOW:
+		rc = smblib_get_batt_current_now(chg, val);
+		break;
+#else
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
 		rc = smblib_get_batt_current_now(chg, val);
 		break;
+#endif
 	case POWER_SUPPLY_PROP_CURRENT_QNOVO:
 		val->intval = get_client_vote_locked(chg->fcc_votable,
 				QNOVO_VOTER);
@@ -1858,13 +2468,14 @@ static int smb5_batt_get_prop(struct power_supply *psy,
 		val->intval = chg->fcc_stepper_enable;
 		break;
 	default:
-		pr_err("batt power supply prop %d not supported\n", psp);
+		pr_debug("batt power supply prop %d not supported\n", psp);
 		return -EINVAL;
 	}
 
 	if (rc < 0) {
 		pr_debug("Couldn't get prop %d rc = %d\n", psp, rc);
-		return -ENODATA;
+		//return -ENODATA;
+		val->intval = -1000;
 	}
 
 	return 0;
@@ -1875,6 +2486,10 @@ static int smb5_batt_set_prop(struct power_supply *psy,
 		const union power_supply_propval *val)
 {
 	int rc = 0;
+#if 0
+	int recharge_current = 2000000;
+#endif
+
 	struct smb_charger *chg = power_supply_get_drvdata(psy);
 
 	switch (prop) {
@@ -1882,11 +2497,23 @@ static int smb5_batt_set_prop(struct power_supply *psy,
 		rc = smblib_set_prop_batt_status(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_INPUT_SUSPEND:
+#ifdef CONFIG_PRODUCT_MOBA
+		if (force_usb_suspend)
+			break;
+#endif
+		pr_info("batt_sys: first main INPUT_SUSPEND %d\n", val->intval);
 		rc = smblib_set_prop_input_suspend(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT:
+		pr_info("batt_sys: write charge control limit %d\n", val->intval);
 		rc = smblib_set_prop_system_temp_level(chg, val);
 		break;
+#ifdef CONFIG_PRODUCT_MOBA
+	case POWER_SUPPLY_PROP_CHARGE_THERMAL_STATUS:
+		rc = smblib_set_prop_charge_thermal_status(chg, val);
+		pr_info("batt_sys: write charge_thermal_status %d\n", val->intval);
+		break;
+#endif
 	case POWER_SUPPLY_PROP_CAPACITY:
 		rc = smblib_set_prop_batt_capacity(chg, val);
 		break;
@@ -1907,6 +2534,48 @@ static int smb5_batt_set_prop(struct power_supply *psy,
 			vote(chg->fv_votable, BATT_PROFILE_VOTER, false, 0);
 		}
 		break;
+#ifdef CONFIG_PRODUCT_MOBA
+	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
+		if (force_usb_suspend)
+			break;
+
+		pr_info("batt_sys: first main CHARGING_ENABLED %d\n", val->intval);
+		if (val->intval)
+			g_chg_en_dev |= 1 << CHG_EN_FIR_MAIN;
+		else
+			g_chg_en_dev &= ~(1 << CHG_EN_FIR_MAIN);
+		//smblib_set_usb_suspend_factory_only(chg, !val->intval);
+#if 1
+		vote(chg->chg_disable_votable, DISABLE_CHARGER, !val->intval, 0);
+#else
+		vote_override(chg->usb_icl_votable, ICL_CTRL_RESUME_VOTER,
+			(val->intval < 0) ? false : true, recharge_current);
+#endif
+		break;
+	case POWER_SUPPLY_PROP_FAC_CHIP_READ_ENABLED:
+		pr_info("batt_sys: [FACTORY] chip read enabled %d\n", val->intval);
+		fac_chip_read_enabled = val->intval;
+		break;
+	case POWER_SUPPLY_PROP_FORCE_USB_SUSPEND:
+		pr_info("batt_sys: [FACTORY] force usb suspend %d\n", val->intval);
+		force_usb_suspend = val->intval;
+		break;
+	case POWER_SUPPLY_PROP_FAC_CHARGING_ENABLED:
+		pr_info("batt_sys: [FACTORY] first main charge enable %d\n", val->intval);
+		fac_chg_enable = val->intval;
+		if (val->intval)
+			g_chg_en_dev |= 1 << CHG_EN_FIR_MAIN;
+		else
+			g_chg_en_dev &= ~(1 << CHG_EN_FIR_MAIN);
+		smblib_set_usb_suspend_factory_only(chg, !val->intval);
+#if 1
+		vote(chg->chg_disable_votable, DISABLE_CHARGER, !val->intval, 0);
+#else
+		vote_override(chg->usb_icl_votable, ICL_CTRL_RESUME_VOTER,
+			(val->intval < 0) ? false : true, recharge_current);
+#endif
+		break;
+#endif
 	case POWER_SUPPLY_PROP_STEP_CHARGING_ENABLED:
 		chg->step_chg_enabled = !!val->intval;
 		break;
@@ -1964,6 +2633,19 @@ static int smb5_batt_set_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_FCC_STEPPER_ENABLE:
 		chg->fcc_stepper_enable = val->intval;
 		break;
+#ifdef CONFIG_PRODUCT_MOBA
+	case POWER_SUPPLY_PROP_DEBUG_TEMP:
+		debug_temp_enable = val->intval;
+		break;
+	case POWER_SUPPLY_PROP_FC_LIMIT_CURRENT:
+		vote(chg->fcc_votable, LIMIT_FC_BATT_VOTER, true, val->intval);
+		pr_info("set 8150b fcc limit current is %d\n",val->intval);
+		break;
+	case POWER_SUPPLY_PROP_PROTECT_DATA:
+		is_protect_data = val->intval;
+		pr_info("protect,is_protect_data is %d\n", is_protect_data);
+		break;
+#endif
 	default:
 		rc = -EINVAL;
 	}
@@ -1985,6 +2667,16 @@ static int smb5_batt_prop_is_writeable(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMITED:
 	case POWER_SUPPLY_PROP_STEP_CHARGING_ENABLED:
 	case POWER_SUPPLY_PROP_DIE_HEALTH:
+#ifdef CONFIG_PRODUCT_MOBA
+	case POWER_SUPPLY_PROP_FC_LIMIT_CURRENT:
+	case POWER_SUPPLY_PROP_PROTECT_DATA:
+	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
+	case POWER_SUPPLY_PROP_DEBUG_TEMP:
+	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT:
+	case POWER_SUPPLY_PROP_CHARGE_THERMAL_STATUS:
+	case POWER_SUPPLY_PROP_FORCE_USB_SUSPEND:
+	case POWER_SUPPLY_PROP_FAC_CHARGING_ENABLED:
+#endif
 		return 1;
 	default:
 		break;
@@ -2025,6 +2717,81 @@ static int smb5_init_batt_psy(struct smb5 *chip)
 /******************************
  * VBUS REGULATOR REGISTRATION *
  ******************************/
+#ifdef CONFIG_PRODUCT_MOBA
+#define OTG1_EN_ACTIVE    "pmx_usb1_otg_en_active"
+#define OTG1_EN_SUSPEND   "pmx_usb1_otg_en_suspend"
+
+static int smb5_otg_pinctrl_init(struct smb_charger *chg)
+{
+	int retval;
+
+	/* Get pinctrl if target uses pinctrl */
+	chg->otg_pinctrl = devm_pinctrl_get(chg->dev);
+	if (IS_ERR_OR_NULL(chg->otg_pinctrl)) {
+		retval = PTR_ERR(chg->otg_pinctrl);
+		pr_info("otg1 enable does not use pinctrl %d\n", retval);
+		goto err_pinctrl_get;
+	}
+
+	chg->pinctrl_state_active
+		= pinctrl_lookup_state(chg->otg_pinctrl, OTG1_EN_ACTIVE);
+	if (IS_ERR_OR_NULL(chg->pinctrl_state_active)) {
+		retval = PTR_ERR(chg->pinctrl_state_active);
+		pr_info("Can not lookup %s pinstate %d\n",
+					OTG1_EN_ACTIVE, retval);
+		goto err_pinctrl_lookup;
+	}
+
+	chg->pinctrl_state_suspend
+		= pinctrl_lookup_state(chg->otg_pinctrl, OTG1_EN_SUSPEND);
+	if (IS_ERR_OR_NULL(chg->pinctrl_state_suspend)) {
+		retval = PTR_ERR(chg->pinctrl_state_suspend);
+		pr_info("Can not lookup %s pinstate %d\n",
+					OTG1_EN_SUSPEND, retval);
+		goto err_pinctrl_lookup;
+	}
+
+	return 0;
+
+err_pinctrl_lookup:
+	devm_pinctrl_put(chg->otg_pinctrl);
+err_pinctrl_get:
+	chg->otg_pinctrl = NULL;
+	return retval;
+}
+
+static void smb5_init_otg_gpio(struct smb5 *chip)
+{
+	struct smb_charger *chg = &chip->chg;
+	int ret;
+
+	ret = smb5_otg_pinctrl_init(chg);
+	if (!ret && chg->otg_pinctrl) {
+		/*
+		 * Pinctrl handle is optional. If pinctrl handle is found
+		 * let pins to be configured in active state. If not
+		 * found continue further without error.
+		 */
+		ret = pinctrl_select_state(chg->otg_pinctrl,
+						chg->pinctrl_state_active);
+		if (ret < 0) {
+			pr_info("%s: Failed to select %s pinstate %d\n",
+				__func__, OTG1_EN_ACTIVE, ret);
+		}
+	}
+
+	chg->otg_gpio = of_get_named_gpio(chip->chg.dev->of_node,
+					"qcom,usb1_otg_en", 0);
+
+	ret = gpio_request(chg->otg_gpio, "otg_en");
+	if (ret) {
+		pr_info("Can't request otg1 en gpio\n", ret);
+		return;
+	}
+
+	gpio_direction_output(chg->otg_gpio, 0);
+}
+#endif
 
 static struct regulator_ops smb5_vbus_reg_ops = {
 	.enable = smblib_vbus_regulator_enable,
@@ -2629,6 +3396,246 @@ static int smb5_init_connector_type(struct smb_charger *chg)
 
 }
 
+#ifdef CONFIG_PRODUCT_MOBA
+#define CHARGER_1T1_EN_ACTIVE    "port1_charge_switch_1_to_1_active"
+#define CHARGER_1T1_EN_SUSPEND   "port1_charge_switch_1_to_1_suspend"
+
+#define CHARGER_1T2_EN_ACTIVE    "port1_charge_switch_1_to_2_active"
+#define CHARGER_1T2_EN_SUSPEND   "port1_charge_switch_1_to_2_suspend"
+
+#define CHARGER_2T1_EN_ACTIVE    "port2_charge_switch_2_to_1_active"
+#define CHARGER_2T1_EN_SUSPEND   "port2_charge_switch_2_to_1_suspend"
+
+#define CHARGER_2T2_EN_ACTIVE    "port2_charge_switch_2_to_2_active"
+#define CHARGER_2T2_EN_SUSPEND   "port2_charge_switch_2_to_2_suspend"
+
+static int lenovo_charge_path_pinctrl_init(struct smb_charger *chg)
+{
+	int retval;
+
+	/* Get pinctrl if target uses pinctrl */
+	chg->charge_1t1_gpio_pinctrl = devm_pinctrl_get(chg->dev);
+	chg->charge_1t2_gpio_pinctrl = devm_pinctrl_get(chg->dev);
+	chg->charge_2t1_gpio_pinctrl = devm_pinctrl_get(chg->dev);
+	chg->charge_2t2_gpio_pinctrl = devm_pinctrl_get(chg->dev);
+
+	if (IS_ERR_OR_NULL(chg->charge_1t1_gpio_pinctrl)) {
+		retval = PTR_ERR(chg->charge_1t1_gpio_pinctrl);
+		pr_err("charge_1t1_gpio_pinctrl enable does not use pinctrl %d\n", retval);
+		goto err_pinctrl_get;
+	}
+
+	if (IS_ERR_OR_NULL(chg->charge_1t2_gpio_pinctrl)) {
+		retval = PTR_ERR(chg->charge_1t2_gpio_pinctrl);
+		pr_err("charge_1t2_gpio_pinctrl enable does not use pinctrl %d\n", retval);
+		goto err_pinctrl_get;
+	}
+
+	if (IS_ERR_OR_NULL(chg->charge_2t1_gpio_pinctrl)) {
+		retval = PTR_ERR(chg->charge_2t1_gpio_pinctrl);
+		pr_err("charge_2t1_gpio_pinctrl enable does not use pinctrl %d\n", retval);
+		goto err_pinctrl_get;
+	}
+
+	if (IS_ERR_OR_NULL(chg->charge_2t2_gpio_pinctrl)) {
+		retval = PTR_ERR(chg->charge_1t1_gpio_pinctrl);
+		pr_err("charge_2t2_gpio_pinctrl enable does not use pinctrl %d\n", retval);
+		goto err_pinctrl_get;
+	}
+	/*PORT_1 TO FIRST BATT*/
+	chg->charge_1t1_gpio_pinctrl_state_active
+			= pinctrl_lookup_state(chg->charge_1t1_gpio_pinctrl, CHARGER_1T1_EN_ACTIVE);
+
+	if (IS_ERR_OR_NULL(chg->charge_1t1_gpio_pinctrl_state_active)) {
+		retval = PTR_ERR(chg->charge_1t1_gpio_pinctrl_state_active);
+		pr_err("charger can not lookup %s pinstate %d\n",
+				CHARGER_1T1_EN_ACTIVE, retval);
+		goto err_pinctrl_lookup;
+	}
+
+	chg->charge_1t1_gpio_pinctrl_state_suspend
+			= pinctrl_lookup_state(chg->charge_1t1_gpio_pinctrl, CHARGER_1T1_EN_SUSPEND);
+
+	if (IS_ERR_OR_NULL(chg->charge_1t1_gpio_pinctrl_state_suspend)) {
+		retval = PTR_ERR(chg->charge_1t1_gpio_pinctrl_state_suspend);
+		pr_err("charger can not lookup %s pinstate %d\n",
+				CHARGER_1T1_EN_SUSPEND, retval);
+		goto err_pinctrl_lookup;
+	}
+
+	/*PORT_1 TO SECOND BATT*/
+	chg->charge_1t2_gpio_pinctrl_state_active
+			= pinctrl_lookup_state(chg->charge_1t2_gpio_pinctrl, CHARGER_1T2_EN_ACTIVE);
+
+	if (IS_ERR_OR_NULL(chg->charge_1t2_gpio_pinctrl_state_active)) {
+		retval = PTR_ERR(chg->charge_1t2_gpio_pinctrl_state_active);
+		pr_err("charger can not lookup %s pinstate %d\n",
+				CHARGER_1T2_EN_ACTIVE, retval);
+		goto err_pinctrl_lookup;
+	}
+
+	chg->charge_1t2_gpio_pinctrl_state_suspend
+			= pinctrl_lookup_state(chg->charge_1t2_gpio_pinctrl, CHARGER_1T2_EN_SUSPEND);
+
+	if (IS_ERR_OR_NULL(chg->charge_1t2_gpio_pinctrl_state_suspend)) {
+		retval = PTR_ERR(chg->charge_1t2_gpio_pinctrl_state_suspend);
+		pr_err("charger can not lookup %s pinstate %d\n",
+				CHARGER_1T2_EN_SUSPEND, retval);
+		goto err_pinctrl_lookup;
+	}
+
+	/*PORT_2 TO FIRST BATT*/
+	chg->charge_2t1_gpio_pinctrl_state_active
+			= pinctrl_lookup_state(chg->charge_2t1_gpio_pinctrl, CHARGER_2T1_EN_ACTIVE);
+
+	if (IS_ERR_OR_NULL(chg->charge_2t1_gpio_pinctrl_state_active)) {
+		retval = PTR_ERR(chg->charge_2t1_gpio_pinctrl_state_active);
+		pr_err("charger can not lookup %s pinstate %d\n",
+				CHARGER_2T1_EN_ACTIVE, retval);
+		goto err_pinctrl_lookup;
+	}
+
+	chg->charge_2t1_gpio_pinctrl_state_suspend
+			= pinctrl_lookup_state(chg->charge_2t1_gpio_pinctrl, CHARGER_2T1_EN_SUSPEND);
+
+	if (IS_ERR_OR_NULL(chg->charge_2t1_gpio_pinctrl_state_suspend)) {
+		retval = PTR_ERR(chg->charge_2t1_gpio_pinctrl_state_suspend);
+		pr_err("charger can not lookup %s pinstate %d\n",
+				CHARGER_2T1_EN_SUSPEND, retval);
+		goto err_pinctrl_lookup;
+	}
+
+	/*PORT_2 TO SECOND BATT*/
+	chg->charge_2t2_gpio_pinctrl_state_active
+			= pinctrl_lookup_state(chg->charge_1t2_gpio_pinctrl, CHARGER_2T2_EN_ACTIVE);
+
+	if (IS_ERR_OR_NULL(chg->charge_2t2_gpio_pinctrl_state_active)) {
+		retval = PTR_ERR(chg->charge_2t2_gpio_pinctrl_state_active);
+		pr_err("charger can not lookup %s pinstate %d\n",
+				CHARGER_2T2_EN_ACTIVE, retval);
+		goto err_pinctrl_lookup;
+	}
+
+	chg->charge_2t2_gpio_pinctrl_state_suspend
+			= pinctrl_lookup_state(chg->charge_2t2_gpio_pinctrl, CHARGER_2T2_EN_SUSPEND);
+
+	if (IS_ERR_OR_NULL(chg->charge_2t2_gpio_pinctrl_state_suspend)) {
+		retval = PTR_ERR(chg->charge_2t2_gpio_pinctrl_state_suspend);
+		pr_err("charger can not lookup %s pinstate %d\n",
+				CHARGER_2T2_EN_SUSPEND, retval);
+		goto err_pinctrl_lookup;
+	}
+
+	return 0;
+
+err_pinctrl_lookup:
+	devm_pinctrl_put(chg->charge_1t1_gpio_pinctrl);
+	devm_pinctrl_put(chg->charge_1t2_gpio_pinctrl);
+	devm_pinctrl_put(chg->charge_2t1_gpio_pinctrl);
+	devm_pinctrl_put(chg->charge_2t2_gpio_pinctrl);
+
+err_pinctrl_get:
+	chg->charge_1t1_gpio_pinctrl = NULL;
+	chg->charge_1t2_gpio_pinctrl = NULL;
+	chg->charge_2t1_gpio_pinctrl = NULL;
+	chg->charge_2t2_gpio_pinctrl = NULL;
+	return retval;
+}
+
+static void lenovo_init_charger_path_switch_gpio(struct smb5 *chip)
+{
+	struct smb_charger *chg = &chip->chg;
+	int ret;
+
+	ret = lenovo_charge_path_pinctrl_init(chg);
+	if (!ret) {
+/*
+* Pinctrl handle is optional. If pinctrl handle is found
+* let pins to be configured in active state. If not
+* found continue further without error.
+*/
+		/*gpio 1t1 pinctrl*/
+		if (chg->charge_1t1_gpio_pinctrl){
+			ret = pinctrl_select_state(chg->charge_1t1_gpio_pinctrl,
+					chg->charge_1t1_gpio_pinctrl_state_active);
+			if (ret < 0) {
+				pr_err("%s: charge failed to select %s pinstate %d\n",
+					__func__, CHARGER_1T1_EN_ACTIVE, ret);
+			}
+		}
+		/*gpio 1t2 pinctrl*/
+		if (chg->charge_1t2_gpio_pinctrl){
+			ret = pinctrl_select_state(chg->charge_1t2_gpio_pinctrl,
+					chg->charge_1t2_gpio_pinctrl_state_active);
+			if (ret < 0) {
+				pr_err("%s: charge failed to select %s pinstate %d\n",
+					__func__, CHARGER_1T2_EN_ACTIVE, ret);
+			}
+		}
+		/*gpio 2t1 pinctrl*/
+		if (chg->charge_2t1_gpio_pinctrl){
+			ret = pinctrl_select_state(chg->charge_2t1_gpio_pinctrl,
+					chg->charge_2t1_gpio_pinctrl_state_active);
+			if (ret < 0) {
+				pr_err("%s: charge failed to select %s pinstate %d\n",
+					__func__, CHARGER_2T1_EN_ACTIVE, ret);
+			}
+		}
+		/*gpio 2t2 pinctrl*/
+		if (chg->charge_2t2_gpio_pinctrl){
+			ret = pinctrl_select_state(chg->charge_2t2_gpio_pinctrl,
+					chg->charge_2t2_gpio_pinctrl_state_active);
+			if (ret < 0) {
+				pr_err("%s: charge failed to select %s pinstate %d\n",
+					__func__, CHARGER_2T2_EN_ACTIVE, ret);
+			}
+		}
+
+		/*gpio 1t1 request*/
+		chg->charge_1t1_gpio = of_get_named_gpio(chip->chg.dev->of_node,
+				"qcom,port1_1_to_1_en", 0);
+
+		ret = gpio_request(chg->charge_1t1_gpio, "charger_switch_1t1_en");
+		if (ret) {
+			pr_err("Can't request charge_1t1_gpio en gpio\n", ret);
+		return;
+		}
+		/*gpio 1t2 request*/
+		chg->charge_1t2_gpio = of_get_named_gpio(chip->chg.dev->of_node,
+				"qcom,port1_1_to_2_en", 0);
+
+		ret = gpio_request(chg->charge_1t2_gpio, "charger_switch_1t2_en");
+		if (ret) {
+			pr_err("Can't request charge_1t2_gpio en gpio\n", ret);
+		return;
+		}
+		/*gpio 2t1 request*/
+		chg->charge_2t1_gpio = of_get_named_gpio(chip->chg.dev->of_node,
+				"qcom,port2_2_to_1_en", 0);
+
+		ret = gpio_request(chg->charge_2t1_gpio, "charger_switch_2t1_en");
+		if (ret) {
+			pr_err("Can't request charge_2t1_gpio en gpio\n", ret);
+		return;
+		}
+		/*gpio 2t2 request*/
+		chg->charge_2t2_gpio = of_get_named_gpio(chip->chg.dev->of_node,
+				"qcom,port2_2_to_2_en", 0);
+
+		ret = gpio_request(chg->charge_2t2_gpio, "charger_switch_2t2_en");
+		if (ret) {
+			pr_err("Can't request charge_2t2_gpio en gpio\n", ret);
+		return;
+		}
+
+		gpio_direction_output(chg->charge_1t1_gpio, 0);
+		gpio_direction_output(chg->charge_1t2_gpio, 0);
+		gpio_direction_output(chg->charge_2t1_gpio, 0);
+		gpio_direction_output(chg->charge_2t2_gpio, 0);
+
+	}
+}
+#endif
 static int smb5_init_hw(struct smb5 *chip)
 {
 	struct smb_charger *chg = &chip->chg;
@@ -3476,6 +4483,14 @@ static int smb5_show_charger_status(struct smb5 *chip)
 	return rc;
 }
 
+#ifdef CONFIG_PRODUCT_MOBA
+struct usbpd *smb_get_usbpd(void)
+{
+       return __smbchg->pd;
+}
+EXPORT_SYMBOL(smb_get_usbpd);
+#endif
+
 static int smb5_probe(struct platform_device *pdev)
 {
 	struct smb5 *chip;
@@ -3485,7 +4500,10 @@ static int smb5_probe(struct platform_device *pdev)
 	chip = devm_kzalloc(&pdev->dev, sizeof(*chip), GFP_KERNEL);
 	if (!chip)
 		return -ENOMEM;
-
+#ifdef CONFIG_PRODUCT_MOBA
+	__smbchg = &chip->chg;
+	g_chg_en_dev |= 1 << CHG_EN_FIR_MAIN;
+#endif
 	chg = &chip->chg;
 	chg->dev = &pdev->dev;
 	chg->debug_mask = &__debug_mask;
@@ -3497,7 +4515,22 @@ static int smb5_probe(struct platform_device *pdev)
 	chg->connector_health = -EINVAL;
 	chg->otg_present = false;
 	chg->main_fcc_max = -EINVAL;
+	chg->restart_pd_status = 0;
 	mutex_init(&chg->adc_lock);
+#ifdef CONFIG_PRODUCT_MOBA
+	mutex_init(&chg->charge_work_lock);
+	chg->charge_therm_fcc_ua = -1;
+	chg->thermal_display_rate_level = 0;
+	chg->thermal_current_display_rate = -1;
+	chg->thermal_speaker_level = 0;
+	chg->thermal_current_speaker = -1;
+	chg->thermal_modem_5g_level = 0;
+	chg->thermal_current_modem_5g = -1;
+	chg->thermal_camera_level = 0;
+	chg->thermal_current_camera = -1;
+	chg->port1_charge_done = 0;
+	chg->port2_charge_done = 0;
+#endif
 
 	chg->regmap = dev_get_regmap(chg->dev->parent, NULL);
 	if (!chg->regmap) {
@@ -3626,6 +4659,14 @@ static int smb5_probe(struct platform_device *pdev)
 		goto cleanup;
 	}
 
+#ifdef CONFIG_PRODUCT_MOBA
+	rc = smb5_init_thermal_psy(chip);
+	if (rc < 0) {
+		pr_err("Couldn't initialize thermal psy rc=%d\n", rc);
+		goto cleanup;
+	}
+#endif
+
 	rc = smb5_init_batt_psy(chip);
 	if (rc < 0) {
 		pr_err("Couldn't initialize batt psy rc=%d\n", rc);
@@ -3664,9 +4705,16 @@ static int smb5_probe(struct platform_device *pdev)
 		pr_err("Failed in getting charger status rc=%d\n", rc);
 		goto free_irq;
 	}
+#ifdef CONFIG_PRODUCT_MOBA
+	smb5_init_otg_gpio(chip);
+#endif
 
+#ifdef CONFIG_PRODUCT_MOBA
+	lenovo_init_charger_path_switch_gpio(chip);
+	gpio_set_value(chg->charge_1t2_gpio, 1);
+	gpio_set_value(chg->charge_2t1_gpio, 1);
+#endif
 	device_init_wakeup(chg->dev, true);
-
 	pr_info("QPNP SMB5 probed successfully\n");
 
 	return rc;

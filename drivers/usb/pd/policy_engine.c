@@ -4145,6 +4145,46 @@ static ssize_t pdo_h_show(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_RO(pdo_h);
 
+#ifdef CONFIG_PRODUCT_MOBA
+static int charger1_5v_obj_current = 0;
+static int charger1_9v_obj_current = 0;
+static int charger1_pd_max_power = 0;
+extern int get_charger2_max_power(void);
+extern int get_charger2a_max_power(void);
+
+int get_charger_max_power(void) {
+	return charger1_pd_max_power;
+}
+
+int get_charger1_5v_obj_current(void) {
+	return charger1_5v_obj_current;
+}
+
+int get_charger1_9v_obj_current(void) {
+	return charger1_9v_obj_current;
+}
+
+void reset_charger1_pd_power_data(void) {
+	charger1_pd_max_power = 0;
+	charger1_5v_obj_current = 0;
+	charger1_9v_obj_current = 0;
+}
+
+static ssize_t charger_max_power_show(struct device *dev, struct device_attribute *attr,
+		char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%d\n", charger1_pd_max_power);
+}
+static DEVICE_ATTR_RO(charger_max_power);
+
+static ssize_t charger2_max_power_show(struct device *dev, struct device_attribute *attr,
+		char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%d\n", max(get_charger2_max_power(), get_charger2a_max_power()));
+}
+static DEVICE_ATTR_RO(charger2_max_power);
+#endif
+
 static ssize_t pdo_n_show(struct device *dev, struct device_attribute *attr,
 		char *buf);
 
@@ -4185,7 +4225,7 @@ static ssize_t select_pdo_store(struct device *dev,
 	int src_cap_id;
 	int pdo, uv = 0, ua = 0;
 	int ret;
-
+	return 0;
 	mutex_lock(&pd->swap_lock);
 
 	/* Only allowed if we are already in explicit sink contract */
@@ -4506,6 +4546,10 @@ static struct attribute *usbpd_attrs[] = {
 	&dev_attr_current_dr.attr,
 	&dev_attr_src_cap_id.attr,
 	&dev_attr_pdo_h.attr,
+#ifdef CONFIG_PRODUCT_MOBA
+	&dev_attr_charger_max_power.attr,
+	&dev_attr_charger2_max_power.attr,
+#endif
 	&dev_attr_pdos[0].attr,
 	&dev_attr_pdos[1].attr,
 	&dev_attr_pdos[2].attr,
@@ -4599,6 +4643,147 @@ static void usbpd_release(struct device *dev)
 	kfree(pd);
 }
 
+#ifdef CONFIG_PRODUCT_MOBA
+int usbpd_get_pps_status(struct usbpd *pd, u32 *pps_status)
+{
+       int ret;
+
+       if (pd->spec_rev == USBPD_REV_20)
+               return -EINVAL;
+
+       ret = trigger_tx_msg(pd, &pd->send_get_pps_status);
+       if (ret)
+               return ret;
+
+       *pps_status = pd->pps_status_db;
+
+       return ret;
+}
+EXPORT_SYMBOL(usbpd_get_pps_status);
+
+int usbpd_fetch_pdo(struct usbpd *pd, struct usbpd_pdo *pdos)
+{
+	int ret = 0;
+	int pdo;
+	int i;
+#ifdef CONFIG_PRODUCT_MOBA
+	int max_power = 0, power = 0;
+#endif
+
+	if (!pd || !pdos)
+		return -EINVAL;
+
+	mutex_lock(&pd->swap_lock);
+
+	if (pd->current_pr == PR_SRC) {
+		usbpd_err(&pd->dev, "not support in SRC mode\n");
+		ret = -ENOTSUPP;
+		goto out;
+	}
+
+	for (i = 0; i < 7; i++) {
+		pdo = pd->received_pdos[i];
+		if (pdo == 0)
+			break;
+
+		pdos[i].pos = i + 1;
+		pdos[i].pps = PD_APDO_PPS(pdo) == 0;
+		pdos[i].type = PD_SRC_PDO_TYPE(pdo);
+
+		if (pdos[i].type == PD_SRC_PDO_TYPE_FIXED) {
+			pdos[i].curr_ma = PD_SRC_PDO_FIXED_MAX_CURR(pdo) * 10;
+			pdos[i].max_volt_mv = PD_SRC_PDO_FIXED_VOLTAGE(pdo) * 50;
+			pdos[i].min_volt_mv = PD_SRC_PDO_FIXED_VOLTAGE(pdo) * 50;
+			usbpd_info(&pd->dev, "pdo:%d, Fixed supply\n"
+					"volt: %d(mv)\n",
+					"max curr:%d\n",
+					i+1, pdos[i].max_volt_mv,
+					pdos[i].curr_ma);
+
+#ifdef CONFIG_PRODUCT_MOBA
+			power = pdos[i].curr_ma * pdos[i].max_volt_mv / 1000000;
+			pr_info("first-usbpd-list fixed %d : volt %d, curr %d, power %d\n",
+					i, pdos[i].max_volt_mv, pdos[i].curr_ma, power);
+			if (power > max_power)
+				max_power = power;
+			if ((pdos[i].max_volt_mv >= 5000) && (pdos[i].max_volt_mv <= 5300))
+				charger1_5v_obj_current = pdos[i].curr_ma;
+			else if ((pdos[i].max_volt_mv >= 9000) && (pdos[i].max_volt_mv <= 9300))
+				charger1_9v_obj_current = pdos[i].curr_ma;
+#endif
+		} else if (pdos[i].type == PD_SRC_PDO_TYPE_AUGMENTED) {
+			pdos[i].max_volt_mv = PD_APDO_MAX_VOLT(pdo) * 100;
+			pdos[i].min_volt_mv = PD_APDO_MIN_VOLT(pdo) * 100;
+			pdos[i].curr_ma     = PD_APDO_MAX_CURR(pdo) * 50;
+			usbpd_info(&pd->dev, "pdo:%d, PPS\n"
+					"volt: %d(mv)\n",
+					"max curr:%d\n",
+					i+1, pdos[i].max_volt_mv,
+					pdos[i].curr_ma);
+		} else {
+			usbpd_err(&pd->dev, "only fixed and pps pdo supported\n");
+		}
+	}
+#ifdef CONFIG_PRODUCT_MOBA
+	charger1_pd_max_power = max_power;
+	pr_info("first-usbpd-list max fixed power %d, 5v obj %dmA, 9v obj %dmA\n",
+			charger1_pd_max_power, charger1_5v_obj_current, charger1_9v_obj_current);
+#endif
+
+out:
+	mutex_unlock(&pd->swap_lock);
+	return ret;
+}
+EXPORT_SYMBOL(usbpd_fetch_pdo);
+
+int usbpd_select_pdo(struct usbpd *pd, int pdo, int uv, int ua)
+{
+	int ret;
+
+	mutex_lock(&pd->swap_lock);
+
+	if (pd->current_pr != PR_SINK) {
+		ret = -ENOTSUPP;
+		goto out;
+	}
+
+	if (pdo < 1 || pdo > 7) {
+		usbpd_err(&pd->dev, "select_pdo: invalid PDO:%d\n", pdo);
+		ret = -EINVAL;
+		goto out;
+	}
+
+	ret = pd_select_pdo(pd, pdo, uv, ua);
+	if (ret)
+		goto out;
+
+	reinit_completion(&pd->is_ready);
+	pd->send_request = true;
+	kick_sm(pd, 0);
+
+	/* wait for operation to complete */
+	if (!wait_for_completion_timeout(&pd->is_ready,
+			msecs_to_jiffies(1000))) {
+		usbpd_err(&pd->dev, "select_pdo: request timed out\n");
+		ret = -ETIMEDOUT;
+		goto out;
+	}
+
+	/* determine if request was accepted/rejected */
+	if (pd->selected_pdo != pd->requested_pdo ||
+			pd->current_voltage != pd->requested_voltage) {
+		usbpd_err(&pd->dev, "select_pdo: request rejected\n");
+		ret = -EINVAL;
+	}
+
+out:
+	pd->send_request = false;
+	mutex_unlock(&pd->swap_lock);
+	return ret;
+
+}
+EXPORT_SYMBOL(usbpd_select_pdo);
+#endif
 static int num_pd_instances;
 
 /**

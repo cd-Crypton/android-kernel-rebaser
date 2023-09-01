@@ -1631,9 +1631,69 @@ out:
 }
 
 static DEVICE_ATTR(state, S_IRUGO, state_show, NULL);
+static ssize_t usb_status_show(struct device *pdev, struct device_attribute *attr,
+			char *buf)
+{
+	struct gadget_info *dev = dev_get_drvdata(pdev);
+	struct usb_composite_dev *cdev;
+	struct usb_composite_driver	*driver;
+	struct gadget_info *gi;
+	char *state = "unknown";
+
+	if (!dev)
+		goto out;
+
+	cdev = &dev->cdev;
+	if (!cdev)
+		goto out;
+
+	driver = cdev->driver;
+	if (!driver)
+		goto out;
+
+	gi = container_of(cdev, struct gadget_info, cdev);
+	if (!gi)
+		goto out;
+
+	mutex_lock(&gi->lock);
+	if (driver->gadget_driver.udc_name) {
+		pr_info("usb %s\n", driver->gadget_driver.udc_name);
+		if (!strcmp("a600000.dwc3", driver->gadget_driver.udc_name))
+			state = "usb0";
+		else if (!strcmp("a800000.dwc3", driver->gadget_driver.udc_name))
+			state = "usb1";
+		else
+			state = "unknown";
+	}
+	mutex_unlock(&gi->lock);
+out:
+	return sprintf(buf, "%s\n", state);
+}
+
+static DEVICE_ATTR(usb_status, S_IRUGO, usb_status_show, NULL);
+#ifdef CONFIG_PRODUCT_MOBA
+static ssize_t otg_status_show(struct device *pdev, struct device_attribute *attr,char *buf)
+{
+	char *state = "unknown";
+	extern int connect_device_type;
+	pr_info("otg_status_show:connect_device_type=%d\n",connect_device_type );
+
+	if(connect_device_type==2)
+		state = "usb1";
+	else
+		state = "unknown";
+	return sprintf(buf, "%s\n", state);
+}
+
+static DEVICE_ATTR(otg_status, S_IRUGO, otg_status_show, NULL);
+#endif
 
 static struct device_attribute *android_usb_attributes[] = {
 	&dev_attr_state,
+	&dev_attr_usb_status,
+#ifdef CONFIG_PRODUCT_MOBA
+	&dev_attr_otg_status,
+#endif
 	NULL
 };
 

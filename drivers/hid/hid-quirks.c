@@ -1294,6 +1294,14 @@ unsigned long hid_lookup_quirk(const struct hid_device *hdev)
 		}
 	}
 
+	/* Gamepad [Razer Kishi] must be queried for HID_QUIRK_INCREMENT_USAGE_ON_DUPLICATE */
+	if (hdev->bus == BUS_USB &&
+	    hdev->vendor == USB_VENDOR_ID_RAZER_KISHI &&
+	    hdev->product == USB_DEVICE_ID_RAZER_GAMEPAD) {
+		pr_info("hid: Gamepad [Razer Kishi] use the quirk usage on duplicate.\n");
+		return HID_QUIRK_INCREMENT_USAGE_ON_DUPLICATE;
+	}
+
 	mutex_lock(&dquirks_lock);
 	quirk_entry = hid_exists_dquirk(hdev);
 	if (quirk_entry)

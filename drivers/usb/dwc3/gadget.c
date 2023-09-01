@@ -3064,6 +3064,8 @@ static void dwc3_endpoint_interrupt(struct dwc3 *dwc,
 			dbg_log_string("DWC3_DEPEVT_EPCMDCMPLT (%d)",
 							dep->number);
 			wake_up(&dep->wait_end_transfer);
+			dbg_log_string("DWC3_DEPEVT_EPCMDCMPLT (%d)",
+			dep->number);
 		}
 		break;
 	case DWC3_DEPEVT_STREAMEVT:

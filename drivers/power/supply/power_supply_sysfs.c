@@ -38,6 +38,10 @@
 	.store = power_supply_store_property,				\
 }
 
+#ifdef CONFIG_PRODUCT_MOBA
+#define USE_TI_FG
+#endif
+
 static struct device_attribute power_supply_attrs[];
 
 static const char * const power_supply_type_text[] = {
@@ -490,6 +494,72 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(battery_type),
 	POWER_SUPPLY_ATTR(cycle_counts),
 	POWER_SUPPLY_ATTR(serial_number),
+#ifdef CONFIG_PRODUCT_MOBA
+	POWER_SUPPLY_ATTR(ti_fault_status),
+	POWER_SUPPLY_ATTR(ti_reg_status),
+	POWER_SUPPLY_ATTR(ti_battery_voltage),
+	POWER_SUPPLY_ATTR(ti_battery_current),
+	POWER_SUPPLY_ATTR(ti_bus_voltage),
+	POWER_SUPPLY_ATTR(ti_bus_current),
+	POWER_SUPPLY_ATTR(ti_bus_temperature),
+	POWER_SUPPLY_ATTR(ti_battery_temperature),
+	POWER_SUPPLY_ATTR(ti_die_temperature),
+	POWER_SUPPLY_ATTR(ti_battery_present),
+	POWER_SUPPLY_ATTR(ti_bus_present),
+	POWER_SUPPLY_ATTR(ti_alarm_status),
+#endif
+#ifdef USE_TI_FG
+	POWER_SUPPLY_ATTR(qcom_capacity),
+	POWER_SUPPLY_ATTR(qcom_current_now),
+	POWER_SUPPLY_ATTR(qcom_voltage_now),
+	POWER_SUPPLY_ATTR(qcom_status),
+#endif
+#ifdef CONFIG_PRODUCT_MOBA
+	POWER_SUPPLY_ATTR(ti_charger_battery_voltage),
+	POWER_SUPPLY_ATTR(ti_charger_system_voltage),
+	POWER_SUPPLY_ATTR(ti_charger_bus_voltage),
+	POWER_SUPPLY_ATTR(ti_charger_battery_current),
+	POWER_SUPPLY_ATTR(ti_charger_config_icl),
+	POWER_SUPPLY_ATTR(ti_charger_config_fcc),
+	POWER_SUPPLY_ATTR(ti_charger_icl),
+
+	POWER_SUPPLY_ATTR(charge_path_1t1),
+	POWER_SUPPLY_ATTR(charge_path_1t2),
+	POWER_SUPPLY_ATTR(charge_path_2t1),
+	POWER_SUPPLY_ATTR(charge_path_2t2),
+	POWER_SUPPLY_ATTR(pmic_register_1),
+	POWER_SUPPLY_ATTR(pmic_register_2),
+
+	POWER_SUPPLY_ATTR(force_first_main_icl),
+	POWER_SUPPLY_ATTR(force_first_main_fcc),
+	POWER_SUPPLY_ATTR(force_first_main_fv),
+	POWER_SUPPLY_ATTR(sec_online),
+	POWER_SUPPLY_ATTR(debug_temp),
+	POWER_SUPPLY_ATTR(protect_data),
+	POWER_SUPPLY_ATTR(charge_thermal_status),
+	POWER_SUPPLY_ATTR(force_usb_suspend),
+	POWER_SUPPLY_ATTR(fac_charging_enabled),
+	POWER_SUPPLY_ATTR(fac_input_suspend),
+	POWER_SUPPLY_ATTR(fac_chip_read_enabled),
+	POWER_SUPPLY_ATTR(therm_display_rate_level),
+	POWER_SUPPLY_ATTR(therm_display_rate_level_max),
+	POWER_SUPPLY_ATTR(therm_display_rate),
+	POWER_SUPPLY_ATTR(therm_display_rate_limit),
+	POWER_SUPPLY_ATTR(therm_speaker_level),
+	POWER_SUPPLY_ATTR(therm_speaker_level_max),
+	POWER_SUPPLY_ATTR(therm_speaker),
+	POWER_SUPPLY_ATTR(therm_speaker_limit),
+	POWER_SUPPLY_ATTR(therm_modem_5g_level),
+	POWER_SUPPLY_ATTR(therm_modem_5g_level_max),
+	POWER_SUPPLY_ATTR(therm_modem_5g),
+	POWER_SUPPLY_ATTR(therm_modem_5g_limit),
+	POWER_SUPPLY_ATTR(therm_camera_level),
+	POWER_SUPPLY_ATTR(therm_camera_level_max),
+	POWER_SUPPLY_ATTR(therm_camera),
+	POWER_SUPPLY_ATTR(therm_camera_limit),
+	POWER_SUPPLY_ATTR(first_pd_type),
+	POWER_SUPPLY_ATTR(sec_pd_type),
+#endif
 };
 
 static struct attribute *

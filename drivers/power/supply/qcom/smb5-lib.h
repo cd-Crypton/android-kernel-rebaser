@@ -17,6 +17,11 @@
 #include "storm-watch.h"
 #include "battery.h"
 
+#ifdef CONFIG_PRODUCT_MOBA
+#include <linux/usb/usbpd.h>
+#define USE_TI_FG
+#endif
+
 enum print_reason {
 	PR_INTERRUPT	= BIT(0),
 	PR_REGISTER	= BIT(1),
@@ -27,6 +32,12 @@ enum print_reason {
 };
 
 #define DEFAULT_VOTER			"DEFAULT_VOTER"
+#ifdef CONFIG_PRODUCT_MOBA
+#define DISABLE_CHARGER		"DISABLE_CHARGER"
+#define LIMIT_FC_BATT_VOTER	"LIMIT_FC_BATT_VOTER"
+#define ICL_CTRL_RESUME_VOTER	"ICL_CTRL_RESUME_VOTER"
+#define CHG_BATT_FFC_VOTER		"CHG_BATT_FFC_VOTER"
+#endif
 #define USER_VOTER			"USER_VOTER"
 #define PD_VOTER			"PD_VOTER"
 #define DCP_VOTER			"DCP_VOTER"
@@ -79,6 +90,11 @@ enum print_reason {
 #define WLS_PL_CHARGING_VOTER		"WLS_PL_CHARGING_VOTER"
 #define ICL_CHANGE_VOTER		"ICL_CHANGE_VOTER"
 #define OVERHEAT_LIMIT_VOTER		"OVERHEAT_LIMIT_VOTER"
+#ifdef CONFIG_PRODUCT_MOBA
+#define FIRST_MAIN_LIMIT_VOTER		"FIRST_MAIN_LIMIT_VOTER"
+#define SECOND_MAIN_LIMIT_VOTER		"SECOND_MAIN_LIMIT_VOTER"
+#define CHARGER_ATTACHED_WAKE_VOTER	"CHARGER_ATTACHED_WAKE_VOTER"
+#endif
 
 #define BOOST_BACK_STORM_COUNT	3
 #define WEAK_CHG_STORM_COUNT	8
@@ -91,7 +107,13 @@ enum print_reason {
 
 #define SDP_100_MA			100000
 #define SDP_CURRENT_UA			500000
+
+#ifdef CONFIG_PRODUCT_MOBA
+#define CDP_CURRENT_UA			500000
+#else
 #define CDP_CURRENT_UA			1500000
+#endif
+
 #define DCP_CURRENT_UA			1500000
 #define HVDCP_CURRENT_UA		3000000
 #define TYPEC_DEFAULT_CURRENT_UA	900000
@@ -100,6 +122,26 @@ enum print_reason {
 #define DCIN_ICL_MIN_UA			100000
 #define DCIN_ICL_MAX_UA			1500000
 #define DCIN_ICL_STEP_UA		100000
+
+#ifdef CONFIG_PRODUCT_MOBA
+#define FFC_THRESHOLD_0C               0
+#define FFC_THRESHOLD_10C              100
+#define FFC_THRESHOLD_15C              150
+#define FFC_THRESHOLD_30C              300
+#define FFC_THRESHOLD_46C              460
+#define FFC_THRESHOLD_60C              600
+
+enum temp_level {
+	T_COLD_THRESHOLD_BL0C,
+	T_COLD_THRESHOLD_0T10C,
+	T_COOL_THRESHOLD_10T15C,
+	T_COOL_THRESHOLD_15T30C,
+	T_GOOD_THRESHOLD_30T46C,
+	T_WARM_THRESHOLD_45T60C,
+	T_HOT_THRESHOLD_UP60C,
+};
+#endif
+
 
 enum smb_mode {
 	PARALLEL_MASTER = 0,
@@ -390,11 +432,24 @@ struct smb_charger {
 	struct mutex		ps_change_lock;
 	struct mutex		irq_status_lock;
 	struct mutex		dcin_aicl_lock;
+#ifdef CONFIG_PRODUCT_MOBA
+	struct mutex		charge_work_lock;
+	struct mutex		battery_monitor_lock;
+#endif
 	spinlock_t		typec_pr_lock;
 	struct mutex		adc_lock;
 	struct mutex		dpdm_lock;
 
 	/* power supplies */
+#ifdef USE_TI_FG
+	struct power_supply		*master_fg_psy;
+	struct power_supply		*slave_fg_psy;
+	struct power_supply		*bq_battery_psy;
+	struct power_supply		*bq2597x_1_psy;
+	struct power_supply		*bq2597x_2_psy;
+	struct power_supply		*bq2597x_3_psy;
+	struct power_supply		*bq2597x_4_psy;
+#endif
 	struct power_supply		*batt_psy;
 	struct power_supply		*usb_psy;
 	struct power_supply		*dc_psy;
@@ -403,8 +458,22 @@ struct smb_charger {
 	struct power_supply		*usb_port_psy;
 	struct power_supply		*wls_psy;
 	struct power_supply		*cp_psy;
+	struct power_supply		*thermal_psy;
 	enum power_supply_type		real_charger_type;
-
+#ifdef CONFIG_PRODUCT_MOBA
+	bool p1_cp_en;
+	bool p1_cp_sec_en;
+	bool p2_cp_en;
+	bool p2_cp_sec_en;
+	enum typec_power_value		ports_insert_value;
+	struct power_supply		*fusb302_usb_charge_psy;
+	struct power_supply     *fcc_25890h_batt_psy;
+	struct power_supply     *fcc_qcom_batt_psy;
+	struct power_supply     *p1_cp_psy;
+	struct power_supply     *p1_cp_sec_psy;
+	struct power_supply *p2_cp_psy;
+	struct power_supply *p2_cp_sec_psy;
+#endif
 	/* notifiers */
 	struct notifier_block	nb;
 
@@ -459,7 +528,17 @@ struct smb_charger {
 	struct delayed_work	usbov_dbc_work;
 	struct delayed_work	pr_swap_detach_work;
 	struct delayed_work	pr_lock_clear_work;
-
+#ifdef CONFIG_PRODUCT_MOBA
+	struct delayed_work	lenovo_monitor_ports_status_work;
+	struct delayed_work	lenovo_battery_monitor_work;
+	struct delayed_work	lenovo_thermal_monitor_work;
+	struct delayed_work	lenovo_charge_monitor_work;
+	struct delayed_work	lenovo_insert_delay_work;
+	struct delayed_work	lenovo_bootup_delay_work;
+	struct delayed_work	lenovo_ffc_ctrl_work;
+	struct delayed_work	lenovo_icl_settled_work;
+	struct delayed_work	lenovo_restart_pd_work;
+#endif
 	struct alarm		lpd_recheck_timer;
 	struct alarm		moisture_protection_alarm;
 	struct alarm		chg_termination_alarm;
@@ -493,6 +572,24 @@ struct smb_charger {
 	int			system_temp_level;
 	int			thermal_levels;
 	int			*thermal_mitigation;
+#ifdef CONFIG_PRODUCT_MOBA
+	int			thermal_display_rate_level;
+	int			thermal_levels_display_rate;
+	int			*thermal_mitigation_display_rate;
+	int			thermal_current_display_rate;
+	int			thermal_speaker_level;
+	int			thermal_levels_speaker;
+	int			*thermal_mitigation_speaker;
+	int			thermal_current_speaker;
+	int			thermal_modem_5g_level;
+	int			thermal_levels_modem_5g;
+	int			*thermal_mitigation_modem_5g;
+	int			thermal_current_modem_5g;
+	int			thermal_camera_level;
+	int			thermal_levels_camera;
+	int			*thermal_mitigation_camera;
+	int			thermal_current_camera;
+#endif
 	int			dcp_icl_ua;
 	int			fake_capacity;
 	int			fake_batt_status;
@@ -596,13 +693,85 @@ struct smb_charger {
 	bool			flash_init_done;
 	bool			flash_active;
 	u32			irq_status;
+#ifdef CONFIG_PRODUCT_MOBA
+	/* OTG Power enable gpio*/
+	int otg_gpio;
+	struct pinctrl *otg_pinctrl;
+	struct pinctrl_state *pinctrl_state_active;
+	struct pinctrl_state *pinctrl_state_suspend;
 
+	int			first_main_icl_ua;
+	int			first_main_fcc_ua;
+	int			first_main_fv_uv;
+	int			first_batt_max_fcc_ua;
+	int			first_batt_max_fv_uv;
+	int			first_main_therm_fcc_ua;
+	int			first_request_fcc_ua;
+	int			first_request_fv_uv;
+	int			first_request_icl_ua;
+	int			sec_main_icl_ua;
+	int			sec_main_fcc_ua;
+	int			sec_main_fv_uv;
+	int			sec_online;
+	int			sec_batt_max_fcc_ua;
+	int			sec_batt_max_fv_uv;
+	int			sec_main_therm_fcc_ua;
+	int			sec_request_fcc_ua;
+	int			sec_request_fv_uv;
+	int			sec_request_icl_ua;
+	int			max_icl_settled_ua;
+	int			sin_port_max_power;
+	int			icl_settled_ready;
+	int			usb_vbus_uv;
+	int			charge_thermal_status;
+	int			restart_pd_status;
+	int			charge_therm_fcc_ua;
+	int			total_main_fcc_ua;
+	int			total_main_icl_ua;
+	int			total_def_main_fcc_ua;
+	int			port1_bus_5v_icl_ua;
+	int			port1_bus_9v_icl_ua;
+	int			port2_bus_5v_icl_ua;
+	int			port2_bus_9v_icl_ua;
+	int			batt1_cap_full;
+	int			batt2_cap_full;
+	int			port1_charge_done;
+	int			port2_charge_done;
+#endif
 	/* wireless */
 	int			dcin_uv_count;
 	ktime_t			dcin_uv_last_time;
 	int			last_wls_vout;
-};
+#ifdef CONFIG_PRODUCT_MOBA
+	struct usbpd            *pd;
+/* charge switch power gpio*/
+	int charge_1t1_gpio;
+	struct pinctrl *charge_1t1_gpio_pinctrl;
+	struct pinctrl_state *charge_1t1_gpio_pinctrl_state_active;
+	struct pinctrl_state *charge_1t1_gpio_pinctrl_state_suspend;
+	int charge_1t2_gpio;
+	struct pinctrl *charge_1t2_gpio_pinctrl;
+	struct pinctrl_state *charge_1t2_gpio_pinctrl_state_active;
+	struct pinctrl_state *charge_1t2_gpio_pinctrl_state_suspend;
 
+	int charge_2t1_gpio;
+	struct pinctrl *charge_2t1_gpio_pinctrl;
+	struct pinctrl_state *charge_2t1_gpio_pinctrl_state_active;
+	struct pinctrl_state *charge_2t1_gpio_pinctrl_state_suspend;
+
+	int charge_2t2_gpio;
+	struct pinctrl *charge_2t2_gpio_pinctrl;
+	struct pinctrl_state *charge_2t2_gpio_pinctrl_state_active;
+	struct pinctrl_state *charge_2t2_gpio_pinctrl_state_suspend;
+#endif
+};
+#ifdef CONFIG_PRODUCT_MOBA
+struct usbpd * smb_get_usbpd(void);
+int smblib_get_prop_charge_thermal_status(struct smb_charger *chg,
+                                union power_supply_propval *val);
+int smblib_set_prop_charge_thermal_status(struct smb_charger *chg,
+                                const union power_supply_propval *val);
+#endif
 int smblib_read(struct smb_charger *chg, u16 addr, u8 *val);
 int smblib_masked_write(struct smb_charger *chg, u16 addr, u8 mask, u8 val);
 int smblib_write(struct smb_charger *chg, u16 addr, u8 val);
@@ -617,6 +786,9 @@ int smblib_enable_charging(struct smb_charger *chg, bool enable);
 int smblib_set_charge_param(struct smb_charger *chg,
 			    struct smb_chg_param *param, int val_u);
 int smblib_set_usb_suspend(struct smb_charger *chg, bool suspend);
+#ifdef CONFIG_PRODUCT_MOBA
+int smblib_set_usb_suspend_factory_only(struct smb_charger *chg, bool suspend);
+#endif
 int smblib_set_dc_suspend(struct smb_charger *chg, bool suspend);
 
 int smblib_mapping_soc_from_field_value(struct smb_chg_param *param,
@@ -682,6 +854,56 @@ int smblib_get_prop_system_temp_level_max(struct smb_charger *chg,
 				union power_supply_propval *val);
 int smblib_get_prop_input_current_limited(struct smb_charger *chg,
 				union power_supply_propval *val);
+#ifdef CONFIG_PRODUCT_MOBA
+int smblib_get_prop_therm_display_rate_level_max(struct smb_charger *chg,
+				union power_supply_propval *val);
+int smblib_get_prop_therm_display_rate_level(struct smb_charger *chg,
+				union power_supply_propval *val);
+int smblib_set_prop_therm_display_rate_level(struct smb_charger *chg,
+				const union power_supply_propval *val);
+int smblib_get_prop_therm_display_rate_limit(struct smb_charger *chg,
+				union power_supply_propval *val);
+int smblib_get_prop_therm_display_rate(struct smb_charger *chg,
+				union power_supply_propval *val);
+int smblib_set_prop_therm_display_rate(struct smb_charger *chg,
+				const union power_supply_propval *val);
+int smblib_get_prop_therm_speaker_level_max(struct smb_charger *chg,
+				union power_supply_propval *val);
+int smblib_get_prop_therm_speaker_level(struct smb_charger *chg,
+				union power_supply_propval *val);
+int smblib_set_prop_therm_speaker_level(struct smb_charger *chg,
+				const union power_supply_propval *val);
+int smblib_get_prop_therm_speaker_limit(struct smb_charger *chg,
+				union power_supply_propval *val);
+int smblib_get_prop_therm_speaker(struct smb_charger *chg,
+				union power_supply_propval *val);
+int smblib_set_prop_therm_speaker(struct smb_charger *chg,
+				const union power_supply_propval *val);
+int smblib_get_prop_therm_modem_5g_level_max(struct smb_charger *chg,
+				union power_supply_propval *val);
+int smblib_get_prop_therm_modem_5g_level(struct smb_charger *chg,
+				union power_supply_propval *val);
+int smblib_set_prop_therm_modem_5g_level(struct smb_charger *chg,
+				const union power_supply_propval *val);
+int smblib_get_prop_therm_modem_5g_limit(struct smb_charger *chg,
+				union power_supply_propval *val);
+int smblib_get_prop_therm_modem_5g(struct smb_charger *chg,
+				union power_supply_propval *val);
+int smblib_set_prop_therm_modem_5g(struct smb_charger *chg,
+				const union power_supply_propval *val);
+int smblib_get_prop_therm_camera_level_max(struct smb_charger *chg,
+				union power_supply_propval *val);
+int smblib_get_prop_therm_camera_level(struct smb_charger *chg,
+				union power_supply_propval *val);
+int smblib_set_prop_therm_camera_level(struct smb_charger *chg,
+				const union power_supply_propval *val);
+int smblib_get_prop_therm_camera_limit(struct smb_charger *chg,
+				union power_supply_propval *val);
+int smblib_get_prop_therm_camera(struct smb_charger *chg,
+				union power_supply_propval *val);
+int smblib_set_prop_therm_camera(struct smb_charger *chg,
+				const union power_supply_propval *val);
+#endif
 int smblib_get_prop_batt_iterm(struct smb_charger *chg,
 				union power_supply_propval *val);
 int smblib_set_prop_input_suspend(struct smb_charger *chg,

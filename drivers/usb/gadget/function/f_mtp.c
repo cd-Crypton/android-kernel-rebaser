@@ -1076,7 +1076,10 @@ static long mtp_send_receive_ioctl(struct file *fp, unsigned int code,
 	struct file *filp = NULL;
 	struct work_struct *work;
 	int ret = -EINVAL;
-
+#ifdef CONFIG_PRODUCT_MOBA
+	extern bool is_protect_data;
+       is_protect_data=1;
+#endif
 	if (mtp_lock(&dev->ioctl_excl)) {
 		mtp_log("ioctl returning EBUSY state:%d\n", dev->state);
 		return -EBUSY;
@@ -1148,6 +1151,9 @@ fail:
 		dev->state = STATE_READY;
 	spin_unlock_irq(&dev->lock);
 out:
+#ifdef CONFIG_PRODUCT_MOBA
+	is_protect_data=0;
+#endif
 	mtp_unlock(&dev->ioctl_excl);
 	mtp_log("ioctl returning %d\n", ret);
 	return ret;
@@ -1809,6 +1815,7 @@ struct usb_function_instance *alloc_inst_mtp_ptp(bool mtp_config)
 {
 	struct mtp_instance *fi_mtp;
 	int ret = 0;
+	static int is_mtp = 0;
 	struct usb_os_desc *descs[1];
 	char *names[1];
 
@@ -1824,12 +1831,16 @@ struct usb_function_instance *alloc_inst_mtp_ptp(bool mtp_config)
 	names[0] = "MTP";
 
 	if (mtp_config) {
+	    if(!is_mtp){
 		ret = mtp_setup_configfs(fi_mtp);
 		if (ret) {
 			kfree(fi_mtp);
 			pr_err("Error setting MTP\n");
 			return ERR_PTR(ret);
 		}
+		is_mtp = 1;
+	     }else
+		    fi_mtp->dev = _mtp_dev;
 	} else
 		fi_mtp->dev = _mtp_dev;
 
@@ -1913,13 +1924,13 @@ static struct usb_function *mtp_alloc(struct usb_function_instance *fi)
 }
 
 DECLARE_USB_FUNCTION(mtp, mtp_alloc_inst, mtp_alloc);
-
+DECLARE_USB_FUNCTION(mtp_sec, mtp_alloc_inst, mtp_alloc);
 static int mtp_init(void)
 {
 	_mtp_ipc_log = ipc_log_context_create(NUM_PAGES, "usb_mtp", 0);
 	if (IS_ERR_OR_NULL(_mtp_ipc_log))
 		_mtp_ipc_log =  NULL;
-
+        usb_function_register(&mtp_secusb_func);
 	return usb_function_register(&mtpusb_func);
 }
 module_init(mtp_init);

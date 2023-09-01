@@ -720,8 +720,139 @@ static struct thermal_zone_device_ops psy_tzd_ops = {
 	.get_temp = power_supply_read_temp,
 };
 
+#ifdef CONFIG_PRODUCT_MOBA
+static int power_supply_read_display_rate(struct thermal_zone_device *tzd,
+		int *temp)
+{
+	struct power_supply *psy;
+	union power_supply_propval val;
+	int ret;
+
+	WARN_ON(tzd == NULL);
+	psy = tzd->devdata;
+	ret = power_supply_get_property(psy, POWER_SUPPLY_PROP_THERM_DISPLAY_RATE, &val);
+	if (ret)
+		return ret;
+
+	*temp = val.intval;
+
+	return ret;
+}
+
+static struct thermal_zone_device_ops psy_display_rate_tzd_ops = {
+	.get_temp = power_supply_read_display_rate,
+};
+
+static int power_supply_read_speaker(struct thermal_zone_device *tzd,
+		int *temp)
+{
+	struct power_supply *psy;
+	union power_supply_propval val;
+	int ret;
+
+	WARN_ON(tzd == NULL);
+	psy = tzd->devdata;
+	ret = power_supply_get_property(psy, POWER_SUPPLY_PROP_THERM_SPEAKER, &val);
+	if (ret)
+		return ret;
+
+	*temp = val.intval;
+
+	return ret;
+}
+
+static struct thermal_zone_device_ops psy_speaker_tzd_ops = {
+	.get_temp = power_supply_read_speaker,
+};
+
+static int power_supply_read_camera(struct thermal_zone_device *tzd,
+		int *temp)
+{
+	struct power_supply *psy;
+	union power_supply_propval val;
+	int ret;
+
+	WARN_ON(tzd == NULL);
+	psy = tzd->devdata;
+	ret = power_supply_get_property(psy, POWER_SUPPLY_PROP_THERM_CAMERA, &val);
+	if (ret)
+		return ret;
+
+	*temp = val.intval;
+
+	return ret;
+}
+
+static struct thermal_zone_device_ops psy_camera_tzd_ops = {
+	.get_temp = power_supply_read_camera,
+};
+
+static int power_supply_read_modem_5g(struct thermal_zone_device *tzd,
+		int *temp)
+{
+	struct power_supply *psy;
+	union power_supply_propval val;
+	int ret;
+
+	WARN_ON(tzd == NULL);
+	psy = tzd->devdata;
+	ret = power_supply_get_property(psy, POWER_SUPPLY_PROP_THERM_MODEM_5G, &val);
+	if (ret)
+		return ret;
+
+	*temp = val.intval;
+
+	return ret;
+}
+
+static struct thermal_zone_device_ops psy_modem_5g_tzd_ops = {
+	.get_temp = power_supply_read_modem_5g,
+};
+#endif
+
 static int psy_register_thermal(struct power_supply *psy)
 {
+#ifdef CONFIG_PRODUCT_MOBA
+	int i;
+	int ret = 0;
+
+	if (psy->desc->no_thermal)
+		return 0;
+
+	/* Register battery zone device psy reports temperature */
+	for (i = 0; i < psy->desc->num_properties; i++) {
+		if (psy->desc->properties[i] == POWER_SUPPLY_PROP_TEMP) {
+			psy->tzd = thermal_zone_device_register(psy->desc->name,
+					0, 0, psy, &psy_tzd_ops, NULL, 0, 0);
+			ret |= PTR_ERR_OR_ZERO(psy->tzd);
+		}
+
+		if (psy->desc->properties[i] == POWER_SUPPLY_PROP_THERM_DISPLAY_RATE) {
+			psy->tzd_display_rate = thermal_zone_device_register("display-rate",
+					0, 0, psy, &psy_display_rate_tzd_ops, NULL, 0, 0);
+			ret |= PTR_ERR_OR_ZERO(psy->tzd_display_rate);
+		}
+
+		if (psy->desc->properties[i] == POWER_SUPPLY_PROP_THERM_SPEAKER) {
+			psy->tzd_speaker = thermal_zone_device_register("speaker2",
+					0, 0, psy, &psy_speaker_tzd_ops, NULL, 0, 0);
+			ret |= PTR_ERR_OR_ZERO(psy->tzd_speaker);
+		}
+
+		if (psy->desc->properties[i] == POWER_SUPPLY_PROP_THERM_MODEM_5G) {
+			psy->tzd_modem_5g = thermal_zone_device_register("modem-5g",
+					0, 0, psy, &psy_modem_5g_tzd_ops, NULL, 0, 0);
+			ret |= PTR_ERR_OR_ZERO(psy->tzd_modem_5g);
+		}
+
+		if (psy->desc->properties[i] == POWER_SUPPLY_PROP_THERM_CAMERA) {
+			psy->tzd_camera = thermal_zone_device_register("camera2",
+					0, 0, psy, &psy_camera_tzd_ops, NULL, 0, 0);
+			ret |= PTR_ERR_OR_ZERO(psy->tzd_camera);
+		}
+	}
+	return ret;
+#else
 	int i;
 
 	if (psy->desc->no_thermal)
@@ -736,13 +867,31 @@ static int psy_register_thermal(struct power_supply *psy)
 		}
 	}
 	return 0;
+#endif
 }
 
 static void psy_unregister_thermal(struct power_supply *psy)
 {
+#ifdef CONFIG_PRODUCT_MOBA
+	if (!IS_ERR_OR_NULL(psy->tzd))
+		thermal_zone_device_unregister(psy->tzd);
+
+	if (!IS_ERR_OR_NULL(psy->tzd_display_rate))
+		thermal_zone_device_unregister(psy->tzd_display_rate);
+
+	if (!IS_ERR_OR_NULL(psy->tzd_speaker))
+		thermal_zone_device_unregister(psy->tzd_speaker);
+
+	if (!IS_ERR_OR_NULL(psy->tzd_modem_5g))
+		thermal_zone_device_unregister(psy->tzd_modem_5g);
+
+	if (!IS_ERR_OR_NULL(psy->tzd_camera))
+		thermal_zone_device_unregister(psy->tzd_camera);
+#else
 	if (IS_ERR_OR_NULL(psy->tzd))
 		return;
 	thermal_zone_device_unregister(psy->tzd);
+#endif
 }
 
 /* thermal cooling device callbacks */
@@ -803,8 +952,318 @@ static const struct thermal_cooling_device_ops psy_tcd_ops = {
 	.set_cur_state = ps_set_cur_charge_cntl_limit,
 };
 
+#ifdef CONFIG_PRODUCT_MOBA
+static int ps_get_max_display_rate_limit(struct thermal_cooling_device *tcd,
+					unsigned long *state)
+{
+	struct power_supply *psy;
+	union power_supply_propval val;
+	int ret;
+
+	psy = tcd->devdata;
+	ret = power_supply_get_property(psy,
+			POWER_SUPPLY_PROP_THERM_DISPLAY_RATE_LEVEL_MAX, &val);
+	if (ret)
+		return ret;
+
+	*state = val.intval;
+
+	return ret;
+}
+
+static int ps_get_cur_display_rate_limit(struct thermal_cooling_device *tcd,
+					unsigned long *state)
+{
+	struct power_supply *psy;
+	union power_supply_propval val;
+	int ret;
+
+	psy = tcd->devdata;
+	ret = power_supply_get_property(psy,
+			POWER_SUPPLY_PROP_THERM_DISPLAY_RATE_LEVEL, &val);
+	if (ret)
+		return ret;
+
+	*state = val.intval;
+
+	return ret;
+}
+
+static int ps_set_cur_display_rate_limit(struct thermal_cooling_device *tcd,
+					unsigned long state)
+{
+	struct power_supply *psy;
+	union power_supply_propval val;
+	int ret;
+
+	psy = tcd->devdata;
+	val.intval = state;
+	ret = psy->desc->set_property(psy,
+		POWER_SUPPLY_PROP_THERM_DISPLAY_RATE_LEVEL, &val);
+
+	return ret;
+}
+
+static const struct thermal_cooling_device_ops psy_display_rate_tcd_ops = {
+	.get_max_state = ps_get_max_display_rate_limit,
+	.get_cur_state = ps_get_cur_display_rate_limit,
+	.set_cur_state = ps_set_cur_display_rate_limit,
+};
+
+static int ps_get_max_speaker_limit(struct thermal_cooling_device *tcd,
+					unsigned long *state)
+{
+	struct power_supply *psy;
+	union power_supply_propval val;
+	int ret;
+
+	psy = tcd->devdata;
+	ret = power_supply_get_property(psy,
+			POWER_SUPPLY_PROP_THERM_SPEAKER_LEVEL_MAX, &val);
+	if (ret)
+		return ret;
+
+	*state = val.intval;
+
+	return ret;
+}
+
+static int ps_get_cur_speaker_limit(struct thermal_cooling_device *tcd,
+					unsigned long *state)
+{
+	struct power_supply *psy;
+	union power_supply_propval val;
+	int ret;
+
+	psy = tcd->devdata;
+	ret = power_supply_get_property(psy,
+			POWER_SUPPLY_PROP_THERM_SPEAKER_LEVEL, &val);
+	if (ret)
+		return ret;
+
+	*state = val.intval;
+
+	return ret;
+}
+
+static int ps_set_cur_speaker_limit(struct thermal_cooling_device *tcd,
+					unsigned long state)
+{
+	struct power_supply *psy;
+	union power_supply_propval val;
+	int ret;
+
+	psy = tcd->devdata;
+	val.intval = state;
+	ret = psy->desc->set_property(psy,
+		POWER_SUPPLY_PROP_THERM_SPEAKER_LEVEL, &val);
+
+	return ret;
+}
+
+static const struct thermal_cooling_device_ops psy_speaker_tcd_ops = {
+	.get_max_state = ps_get_max_speaker_limit,
+	.get_cur_state = ps_get_cur_speaker_limit,
+	.set_cur_state = ps_set_cur_speaker_limit,
+};
+
+static int ps_get_max_modem_5g_limit(struct thermal_cooling_device *tcd,
+					unsigned long *state)
+{
+	struct power_supply *psy;
+	union power_supply_propval val;
+	int ret;
+
+	psy = tcd->devdata;
+	ret = power_supply_get_property(psy,
+			POWER_SUPPLY_PROP_THERM_MODEM_5G_LEVEL_MAX, &val);
+	if (ret)
+		return ret;
+
+	*state = val.intval;
+
+	return ret;
+}
+
+static int ps_get_cur_modem_5g_limit(struct thermal_cooling_device *tcd,
+					unsigned long *state)
+{
+	struct power_supply *psy;
+	union power_supply_propval val;
+	int ret;
+
+	psy = tcd->devdata;
+	ret = power_supply_get_property(psy,
+			POWER_SUPPLY_PROP_THERM_MODEM_5G_LEVEL, &val);
+	if (ret)
+		return ret;
+
+	*state = val.intval;
+
+	return ret;
+}
+
+static int ps_set_cur_modem_5g_limit(struct thermal_cooling_device *tcd,
+					unsigned long state)
+{
+	struct power_supply *psy;
+	union power_supply_propval val;
+	int ret;
+
+	psy = tcd->devdata;
+	val.intval = state;
+	ret = psy->desc->set_property(psy,
+		POWER_SUPPLY_PROP_THERM_MODEM_5G_LEVEL, &val);
+
+	return ret;
+}
+
+static const struct thermal_cooling_device_ops psy_modem_5g_tcd_ops = {
+	.get_max_state = ps_get_max_modem_5g_limit,
+	.get_cur_state = ps_get_cur_modem_5g_limit,
+	.set_cur_state = ps_set_cur_modem_5g_limit,
+};
+
+static int ps_get_max_camera_limit(struct thermal_cooling_device *tcd,
+					unsigned long *state)
+{
+	struct power_supply *psy;
+	union power_supply_propval val;
+	int ret;
+
+	psy = tcd->devdata;
+	ret = power_supply_get_property(psy,
+			POWER_SUPPLY_PROP_THERM_CAMERA_LEVEL_MAX, &val);
+	if (ret)
+		return ret;
+
+	*state = val.intval;
+
+	return ret;
+}
+
+static int ps_get_cur_camera_limit(struct thermal_cooling_device *tcd,
+					unsigned long *state)
+{
+	struct power_supply *psy;
+	union power_supply_propval val;
+	int ret;
+
+	psy = tcd->devdata;
+	ret = power_supply_get_property(psy,
+			POWER_SUPPLY_PROP_THERM_CAMERA_LEVEL, &val);
+	if (ret)
+		return ret;
+
+	*state = val.intval;
+
+	return ret;
+}
+
+static int ps_set_cur_camera_limit(struct thermal_cooling_device *tcd,
+					unsigned long state)
+{
+	struct power_supply *psy;
+	union power_supply_propval val;
+	int ret;
+
+	psy = tcd->devdata;
+	val.intval = state;
+	ret = psy->desc->set_property(psy,
+		POWER_SUPPLY_PROP_THERM_CAMERA_LEVEL, &val);
+
+	return ret;
+}
+
+static const struct thermal_cooling_device_ops psy_camera_tcd_ops = {
+	.get_max_state = ps_get_max_camera_limit,
+	.get_cur_state = ps_get_cur_camera_limit,
+	.set_cur_state = ps_set_cur_camera_limit,
+};
+
+#endif
+
 static int psy_register_cooler(struct device *dev, struct power_supply *psy)
 {
+#ifdef CONFIG_PRODUCT_MOBA
+	int i;
+	int ret;
+
+	/* Register for cooling device if psy can control charging */
+	for (i = 0; i < psy->desc->num_properties; i++) {
+		if (psy->desc->properties[i] ==
+				POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT) {
+			if (dev)
+				psy->tcd = thermal_of_cooling_device_register(
+							dev_of_node(dev),
+							(char *)psy->desc->name,
+							psy, &psy_tcd_ops);
+			else
+				psy->tcd = thermal_cooling_device_register(
+							(char *)psy->desc->name,
+							psy, &psy_tcd_ops);
+			ret |= PTR_ERR_OR_ZERO(psy->tcd);
+		}
+
+		if (psy->desc->properties[i] ==
+				POWER_SUPPLY_PROP_THERM_DISPLAY_RATE_LEVEL_MAX) {
+			if (dev)
+				psy->tcd_display_rate = thermal_of_cooling_device_register(
+							dev_of_node(dev),
+							"display-rate",
+							psy, &psy_display_rate_tcd_ops);
+			else
+				psy->tcd_display_rate = thermal_cooling_device_register(
+							"display-rate",
+							psy, &psy_display_rate_tcd_ops);
+			ret |= PTR_ERR_OR_ZERO(psy->tcd_display_rate);
+		}
+
+		if (psy->desc->properties[i] ==
+				POWER_SUPPLY_PROP_THERM_SPEAKER_LEVEL_MAX) {
+			if (dev)
+				psy->tcd_speaker = thermal_of_cooling_device_register(
+							dev_of_node(dev),
+							"speaker2",
+							psy, &psy_speaker_tcd_ops);
+			else
+				psy->tcd_speaker = thermal_cooling_device_register(
+							"speaker2",
+							psy, &psy_speaker_tcd_ops);
+			ret |= PTR_ERR_OR_ZERO(psy->tcd_speaker);
+		}
+
+		if (psy->desc->properties[i] ==
+				POWER_SUPPLY_PROP_THERM_MODEM_5G_LEVEL_MAX) {
+			if (dev)
+				psy->tcd_modem_5g = thermal_of_cooling_device_register(
+							dev_of_node(dev),
+							"modem-5g",
+							psy, &psy_modem_5g_tcd_ops);
+			else
+				psy->tcd_modem_5g = thermal_cooling_device_register(
+							"modem-5g",
+							psy, &psy_modem_5g_tcd_ops);
+			ret |= PTR_ERR_OR_ZERO(psy->tcd_modem_5g);
+		}
+
+		if (psy->desc->properties[i] ==
+				POWER_SUPPLY_PROP_THERM_CAMERA_LEVEL_MAX) {
+			if (dev)
+				psy->tcd_camera = thermal_of_cooling_device_register(
+							dev_of_node(dev),
+							"camera2",
+							psy, &psy_camera_tcd_ops);
+			else
+				psy->tcd_camera = thermal_cooling_device_register(
+							"camera2",
+							psy, &psy_camera_tcd_ops);
+			ret |= PTR_ERR_OR_ZERO(psy->tcd_camera);
+		}
+
+	}
+	return ret;
+#else
 	int i;
 
 	/* Register for cooling device if psy can control charging */
@@ -824,13 +1283,31 @@ static int psy_register_cooler(struct device *dev, struct power_supply *psy)
 		}
 	}
 	return 0;
+#endif
 }
 
 static void psy_unregister_cooler(struct power_supply *psy)
 {
+#ifdef CONFIG_PRODUCT_MOBA
+	if (!IS_ERR_OR_NULL(psy->tcd))
+		thermal_cooling_device_unregister(psy->tcd);
+
+	if (!IS_ERR_OR_NULL(psy->tcd_display_rate))
+		thermal_cooling_device_unregister(psy->tcd_display_rate);
+
+	if (!IS_ERR_OR_NULL(psy->tcd_speaker))
+		thermal_cooling_device_unregister(psy->tcd_speaker);
+
+	if (!IS_ERR_OR_NULL(psy->tcd_modem_5g))
+		thermal_cooling_device_unregister(psy->tcd_modem_5g);
+
+	if (!IS_ERR_OR_NULL(psy->tcd_camera))
+		thermal_cooling_device_unregister(psy->tcd_camera);
+#else
 	if (IS_ERR_OR_NULL(psy->tcd))
 		return;
 	thermal_cooling_device_unregister(psy->tcd);
+#endif
 }
 #else
 static int psy_register_thermal(struct power_supply *psy)

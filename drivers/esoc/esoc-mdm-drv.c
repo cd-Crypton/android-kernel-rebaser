@@ -641,8 +641,19 @@ static struct esoc_drv esoc_ssr_drv = {
 	},
 };
 
+static char bootreason[10];
+static int __init boot_reason_param(char *line)
+{
+    strlcpy(bootreason, line, sizeof(bootreason));
+    return 1;
+}
+
+__setup("androidboot.bootreason=", boot_reason_param);
+
 int __init esoc_ssr_init(void)
 {
+    if(strncmp(bootreason, "usb_chg", 7)==0)
+        return 0;
 	return esoc_drv_register(&esoc_ssr_drv);
 }
 module_init(esoc_ssr_init);
