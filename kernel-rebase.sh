@@ -71,3 +71,4 @@ echo -e ${GREEN}"Your Kernel has been successfully rebased to ACK. Please check 
 
 # Exit
 exit 0
+#
