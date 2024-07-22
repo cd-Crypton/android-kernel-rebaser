@@ -9,9 +9,9 @@ NORMAL='\033[0m'
 PROJECT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
 
 # Variables
-CAF_REPO="https://git.codelinaro.org/clo/la/kernel/msm-4.19.git"
-OEM_KERNEL=${1}
-CAF_BRANCH=${2}
+CAF_REPO="https://git.codelinaro.org/clo/la/kernel/common"
+OEM_KERNEL="https://github.com/carlodandan/android_kernel_samsung_a05s -b staging-13"
+CAF_BRANCH=android13-5.15-2023-10_r1
 
 # Help Function
 usage() {
@@ -57,15 +57,16 @@ cd -
 cp -r oem/* kernel/
 cd kernel
 
+git config --global user.name "Carlo Dandan"
+git config --global user.email "carlodandan.personal@proton.me"
+
 for i in ${OEM_DIR_LIST}; do
 	git add ${i}
-	git commit -s -m "${i}: Import OEM Changes"
+	git commit -sm "${i}: Import Samsung changes in common kernel."
 done
 
 git add .
-git commit -s -m "Import Remaining OEM Changes"
-
-cd -
+git commit -sm "Import remaining Samsung changes in common kernel."
 
 echo -e ${GREEN}"Your Kernel has been successfully rebased to CAF. Please check kernel/"${NORMAL}
 
