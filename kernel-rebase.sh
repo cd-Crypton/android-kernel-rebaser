@@ -9,7 +9,7 @@ NORMAL='\033[0m'
 PROJECT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
 
 # Variables
-CAF_REPO="https://git.codelinaro.org/clo/la/kernel/common"
+CAF_REPO="https://git.codelinaro.org/clo/la/kernel/common.git"
 OEM_KERNEL="https://github.com/carlodandan/android_kernel_samsung_a05s -b staging-13"
 CAF_BRANCH=android13-5.15-2023-10_r1
 
